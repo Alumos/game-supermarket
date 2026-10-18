@@ -133,7 +133,9 @@ export class SupermarketWorld {
   _pointer(e){
     if(e.button&&e.button!==0)return;this.canvas.focus({preventScroll:true});const p=this._screenPoint(e);
     const matches=this.hotspots.map(h=>{const s=this._hotpoint(h);return {h,dx:Math.abs(p.x-s.x),dy:Math.abs(p.y-s.y),d:Math.hypot(p.x-s.x,p.y-s.y)};}).sort((a,b)=>a.d-b.d);
-    const rangeX=Math.max(22/p.scaleX,25),rangeY=Math.max(22/p.scaleY,25);const hit=matches.find(m=>m.dx<=rangeX&&m.dy<=rangeY)?.h;
+    const rangeX=Math.max(22/p.scaleX,25),rangeY=Math.max(22/p.scaleY,25);
+    const workstation=this.chapterId===3?this.hotspots.find(h=>{if(h.npc)return false;const point=this._xy(h);return Math.abs(p.x-point.x)<=56&&p.y>=point.y-151&&p.y<=point.y+12;}):null;
+    const hit=workstation||matches.find(m=>m.dx<=rangeX&&m.dy<=rangeY)?.h;
     if(this.mode==='select'){
       if(hit&&!hit.npc&&(!this.targets.length||this.targets.includes(hit.id))){this.flash={text:`已选择 ${hit.label}`,until:this.time+1.4};this.callbacks.onTarget?.(hit.id);}return;
     }
@@ -287,7 +289,7 @@ export class SupermarketWorld {
       if(active){this.r(x-60,y-144,120,151,'#ecd48c');this.r(x-57,y-141,114,145,'#a9c5a2');}
       this._cabinet(x-52,y-110,104,85,id==='plant'?'#a0aa7a':'#75a69a');
       this._sign(names[id],x,y-135,active?'#bc8d44':P.teal,100);
-      this._marker(active?'本次岗位':'参观',x,y-5,active?'#b7853f':'#64887b');
+      this._marker(active?'当前任务':'点击选择',x,y-5,active?'#b7853f':'#64887b');
       if(active)this.text('↓ 在这里实践',x,y+28,13,'#765b30');
     }
     const rice=this._xy(WORK_POINTS['rice-roll']);this._riceRoll(rice.x,rice.y,this.taskId==='rice-roll'?f:{});
@@ -308,7 +310,7 @@ export class SupermarketWorld {
     if(ff.fishfood){this._package(fish.x+29,fish.y-73,14,19,'#d6aa62');this.r(fish.x+29,fish.y-75,14,4,'#be7956');}
     if(ff.feed)for(let i=0;i<8;i++)this.r(fish.x-19+i*6,fish.y-100+(i*7+Math.floor(this.time*6))%32,2,2,'#e9c377');
     if(ff.record_feed){this.r(fish.x+12,fish.y-47,26,18,'#f2e4bd');this.r(fish.x+15,fish.y-42,17,1,'#86a27b');this.r(fish.x+15,fish.y-37,13,1,'#86a27b');this.text('✓',fish.x+32,fish.y-34,11,P.teal);}
-    this._sign('点工作台可参观 · 编排流程后执行岗位操作',335,375,'#4a776b',370);
+    this._sign('点工作台选择任务 · 每个区的流程图分别保存',335,375,'#4a776b',370);
   }
   _kettle(x,y){this.r(x-12,y-24,22,22,'#88a69b');this.r(x-11,y-24,20,3,'#dce0bd');this.r(x-8,y-28,14,5,'#436d66');this.r(x-2,y-31,3,3,'#bed1ac');this.poly([[x+9,y-19],[x+21,y-26],[x+16,y-12],[x+9,y-10]],'#7fa293');this.r(x-18,y-20,7,16,'#436f67');this.r(x-17,y-18,4,11,'#c2d1af');this.r(x-7,y-18,3,12,'#c3d4b5');}
   _watering(x,y){this.r(x-11,y-16,18,15,'#7ba5a6');this.r(x-8,y-17,12,3,'#c1d2bc');this.poly([[x+6,y-11],[x+19,y-19],[x+20,y-16],[x+8,y-4]],'#759b9a');this.r(x-17,y-15,7,12,'#759b9a');this.r(x-15,y-13,3,7,'#c1cbb0');}

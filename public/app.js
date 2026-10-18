@@ -6,7 +6,7 @@ import {dragFootprint,dropZone,insertionAt,movedInsertionIndex} from './drag-dro
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-${Date.now().toString(36)}-${Array.from(globalThis.crypto?.getRandomValues?.(new Uint32Array(3))||[Math.random()*1e9,Math.random()*1e9]).map(n=>n.toString(36)).join('')}`, esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaultTask=ch=>['','drink-swap','fresh-juice','tea','delivery'][ch];
-const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false};
+const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false};
 let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId;
 const scope=()=>state.learner?.id||'practice';
 const graphKey=(ch=state.chapter,task=state.taskId)=>`draft:${scope()}:${ch}:${task}`;
@@ -18,7 +18,7 @@ const DRAG_SCALE=.92;
 const flowMotions=new Map();
 let flowMotionFrame=0;
 const deliveryDestinations=()=>Object.entries(DELIVERY_MAP.points).filter(([id])=>!id.startsWith('J'));
-const allowed=()=>!state.joining&&!state.checkingClass&&!state.classUnavailable&&!state.authExpired&&!state.tabBlocked&&(!state.session||state.session.phase==='practice');
+const allowed=()=>!state.joining&&!state.checkingClass&&!state.switchingTask&&!state.classUnavailable&&!state.authExpired&&!state.tabBlocked&&(!state.session||state.session.phase==='practice');
 const editable=()=>allowed()&&!state.running&&!state.demo;
 const cleanGraph=(ch=state.chapter,t=state.taskId)=>({schemaVersion:1,chapterId:ch,taskId:t,contentVersion:'1.0.0',...(t==='delivery'?{deliveryCoordinates:'cartesian-y-up',deliveryRulesVersion:DELIVERY_RULES_VERSION}:{}),revision:0,nodes:[{id:uid(),kind:'start'},{id:uid(),kind:'end'}],edges:[]});
 const currentDeliveryDraft=graph=>{const normalized=normalizeDeliveryGraph(graph);return normalized?.taskId==='delivery'&&deliveryRulesVersion(normalized)!==DELIVERY_RULES_VERSION?{...normalized,deliveryRulesVersion:DELIVERY_RULES_VERSION}:normalized;};
@@ -26,7 +26,7 @@ function toast(message){$('#toast').textContent=message;$('#toast').hidden=false
 function storageError(e){$('#saveStatus').textContent=e.message||'设备存储不可用';$('#saveStatus').style.color='#ad6c43';toast(e.message||'设备存储不可用，请保留此页面');}
 async function safeSet(key,value){try{await db.set(key,value);return true;}catch(e){storageError(e);return false;}}
 async function api(path,options={}){
-  const learnerHeader=state.learner&&/^\/api\/student\/(ack|drafts|runs|submissions|works)(?:\/|$)/.test(path)?{'X-Supermarket-Learner':state.learner.id}:{};
+  const learnerHeader=state.learner&&/^\/api\/student\/(ack|drafts|runs|submissions|works|task)(?:\/|$)/.test(path)?{'X-Supermarket-Learner':state.learner.id}:{};
   let response;try{response=await fetch(path,{credentials:'same-origin',signal:AbortSignal.timeout(10000),...options,headers:{'Content-Type':'application/json','X-Supermarket-Role':'student',...learnerHeader,...options.headers},body:options.body===undefined?undefined:JSON.stringify(options.body)});}catch(e){state.online=false;renderConnection();throw e;}
   const data=await response.json().catch(()=>({}));
   if(!response.ok){const error=new Error(data.error||data.message||'请求未完成');Object.assign(error,{status:response.status,data});throw error;}
@@ -55,7 +55,7 @@ function renderChapter(){
   $('#chapters').innerHTML=CHAPTERS.map(c=>`<button class="chapter-tab ${c.id===state.chapter?'active':''}" data-chapter="${c.id}" ${state.session||state.running?'disabled':''}><b>0${c.id}</b><span>${esc(['','饮料区','水果区','实践区','配送区'][c.id])}</span></button>`).join('');
   $('#chapterNumber').textContent=`第${['','一','二','三','四'][state.chapter]}站 / 0${state.chapter}`;$('#sceneTitle').textContent=chapter.title;$('#npcName').textContent=t.npc;$('#dialogueText').textContent=chapter.story;
   $('#taskGoal').textContent=t.goal;$('#metrics').hidden=!delivery;$('#deliveryOrders').hidden=!delivery;$('#coordinateTools').hidden=!delivery;
-  $('#localTask').hidden=state.chapter!==3||!!state.session;$('#localTask').value=state.taskId;
+  renderPracticeTasks();
   $('#editorTitle').textContent=delivery?'我的配送程序':'安排我的工作';$('#runButton').textContent=delivery?'▶ 运行配送程序':'▶ 运行流程图';
   $('#toolHint').textContent=delivery?'拖动蓝色积木到画布，按顺序拼接。':'把操作卡拖入画布；拖回工具区可以删除。';
   $('#paletteHint').textContent=delivery?'拖动蓝色积木到画布':'拖动蓝色卡片到画布';
@@ -83,13 +83,14 @@ function updateControls(){
   const edit=editable(),running=!!state.running||state.demo;
   if(!edit)cancelCardDrag?.();
   if(!allowed()&&$('#submitDialog').open)$('#submitDialog').close();
-  $('#runButton').disabled=!edit;$('#submitButton').disabled=!edit;$('#clearButton').disabled=!edit;$('#chainButton').disabled=!edit;$('#connectButton').disabled=!edit;$('#undoButton').disabled=!edit||!state.undo.length;$('#localTask').disabled=!edit;
-  $$('.action-card').forEach(e=>e.disabled=!edit);$$('.chapter-tab').forEach(e=>e.disabled=!!state.session||running||state.joining||state.checkingClass);$('#pauseButton').disabled=!running||state.teacherPaused;$('#pauseButton').textContent=state.userPaused?'继续':'暂停';$('#stopButton').disabled=!running;$('#demoButton').disabled=running||state.tabBlocked||state.joining||state.checkingClass||state.classUnavailable||!!state.session&&['waiting','paused','ended'].includes(state.session.phase);
+  $('#runButton').disabled=!edit;$('#submitButton').disabled=!edit;$('#clearButton').disabled=!edit;$('#chainButton').disabled=!edit;$('#connectButton').disabled=!edit;$('#undoButton').disabled=!edit||!state.undo.length;
+  $$('#practiceTasks button').forEach(button=>button.disabled=!edit);
+  $$('.action-card').forEach(e=>e.disabled=!edit);$$('.chapter-tab').forEach(e=>e.disabled=!!state.session||running||state.joining||state.checkingClass);$('#pauseButton').disabled=!running||state.teacherPaused;$('#pauseButton').textContent=state.userPaused?'继续':'暂停';$('#stopButton').disabled=!running;$('#demoButton').disabled=running||state.tabBlocked||state.joining||state.checkingClass||state.switchingTask||state.classUnavailable||!!state.session&&['waiting','paused','ended'].includes(state.session.phase);
   $('#flowCanvas').classList.toggle('read-only',!edit);$('#connectButton').classList.toggle('active',state.connecting);$('#flowCanvas').classList.toggle('connecting',state.connecting);requestGraphLayout();
   updateConnectionTargets();
-  world.setMode(running?'run':allowed()?'explore':'locked');$('#mapHint').textContent=running?(state.demo?'正在观看示范':isDelivery()?'正在执行配送积木':'正在按流程图行动'):isDelivery()?'底部查坐标 · 点道路可探路':'点地面走动 · 点师傅听提示';
+  world.setMode(running?'run':allowed()?'explore':'locked');$('#mapHint').textContent=running?(state.demo?'正在观看示范':isDelivery()?'正在执行配送积木':'正在按流程图行动'):isDelivery()?'底部查坐标 · 点道路可探路':state.chapter===3?'点工作台选任务 · 各区作品分别保存':'点地面走动 · 点师傅听提示';
   $$('#coordinateCards button, #flowNodes input').forEach(el=>el.disabled=!edit);
-  $('#chapters').querySelectorAll('button').forEach(b=>b.disabled=!!state.session||running);
+  $('#chapters').querySelectorAll('button').forEach(b=>b.disabled=!!state.session||running||state.switchingTask);
   renderInspector();
 }
 function renderGraph(){
@@ -413,7 +414,7 @@ $('#inspector').addEventListener('change',e=>{const n=state.graph.nodes.find(n=>
 $('#inspector').addEventListener('click',e=>{const type=e.target.dataset.edit;if(!type)return;if(type==='done'){state.selected=null;renderGraph();return;}if(type==='up'||type==='down')moveNode(state.selected,type==='up'?-1:1);if(type==='delete'&&beforeEdit()){state.graph.nodes=state.graph.nodes.filter(n=>n.id!==state.selected);state.selected=null;chain();changed();}});
 $('#actionCards').addEventListener('click',e=>{if(Date.now()>=dragClickUntil&&e.target.closest('[data-action]'))toast('把操作卡拖到中间画布，就能添加。');});
 $('#chapters').addEventListener('click',e=>{const b=e.target.closest('[data-chapter]');if(b&&!state.session&&!state.running)changeChapter(Number(b.dataset.chapter));});
-$('#localTask').addEventListener('change',e=>changeChapter(3,e.target.value));
+$('#practiceTasks').addEventListener('click',e=>{const button=e.target.closest('[data-practice-task]');if(button)selectPracticeTask(button.dataset.practiceTask);});
 $('#chainButton').onclick=()=>{if(beforeEdit()){chain();changed();toast('已按步骤编号连接');}};
 $('#connectButton').onclick=()=>{state.connecting=!state.connecting;state.connectFrom=null;updateControls();toast(state.connecting?'依次点两个框，画出执行箭头':'已退出手动连线');};
 $('#undoButton').onclick=()=>{if(editable()&&state.undo.length){state.graph=state.undo.pop();state.selected=null;changed();}};
@@ -442,7 +443,32 @@ $('.control-panel').addEventListener('pointerdown',e=>{
   });
 });
 for(const area of [$('#flowNodes'),$('.control-panel')])area.addEventListener('dragstart',e=>{if(e.target.closest('.flow-node,[data-palette-drag]'))e.preventDefault();});
-const world=new SupermarketWorld($('#world'),{onExplore:point=>{if(isDelivery())$('#dialogueText').textContent=`探路位置（${point.x},${point.y}）。上方的第二个数更大，转弯时把道路坐标填入积木。`;},onInteract:()=>{$('#dialogueText').textContent=isDelivery()?'先看冷藏订单的时限，再安排顺路配送。每块积木直走，转弯时再加坐标。':task().description;},onTarget:id=>{if(isDelivery()&&DELIVERY_MAP.points[id])addAction('move_to',{...DELIVERY_MAP.points[id]});else toast(`已选中${id}，请在步骤框内设置对应操作`);}});
+const world=new SupermarketWorld($('#world'),{onExplore:point=>{if(isDelivery())$('#dialogueText').textContent=`探路位置（${point.x},${point.y}）。上方的第二个数更大，转弯时把道路坐标填入积木。`;},onInteract:id=>{if(state.chapter===3&&TASKS.some(t=>t.chapterId===3&&t.id===id)){selectPracticeTask(id);return;}$('#dialogueText').textContent=isDelivery()?'先看冷藏订单的时限，再安排顺路配送。每块积木直走，转弯时再加坐标。':task().description;},onTarget:id=>{if(isDelivery()&&DELIVERY_MAP.points[id])addAction('move_to',{...DELIVERY_MAP.points[id]});else toast(`已选中${id}，请在步骤框内设置对应操作`);}});
+
+function renderPracticeTasks(){
+  const panel=$('#practiceTasks');panel.hidden=state.chapter!==3;
+  panel.innerHTML=TASKS.filter(t=>t.chapterId===3).map(t=>`<button type="button" data-practice-task="${t.id}" aria-pressed="${t.id===state.taskId}" ${editable()?'':'disabled'}>${esc({'rice-roll':'饭卷',tea:'茶饮',plant:'绿植',fish:'观赏鱼'}[t.id])}</button>`).join('');
+}
+async function selectPracticeTask(taskId){
+  if(state.chapter!==3||!editable()||!TASKS.some(t=>t.chapterId===3&&t.id===taskId))return false;
+  if(taskId===state.taskId){$('#dialogueText').textContent=task().description;return true;}
+  state.switchingTask=true;updateControls();
+  try{
+    if(state.session){
+      // Save the old task before the server announces the new selection. Drafts
+      // use independent task keys, so pending uploads remain safe after switching.
+      await persistNow();
+      const result=await api('/api/student/task',{method:'POST',body:{taskId}});
+      await acceptRoom(result);
+    }else await changeChapter(3,taskId,{transition:false});
+    toast(`已切换到${{'rice-roll':'饭卷',tea:'茶饮',plant:'绿植',fish:'观赏鱼'}[state.taskId]}任务，各区流程图分别保存`);
+    return state.taskId===taskId;
+  }catch(error){
+    if(error.data?.identityMismatch){state.authExpired=true;syncCurrentClass();}
+    else if(error.status===409)alignRoom().catch(()=>{});
+    toast(error.message||'暂时无法切换，请连接课堂后再试');return false;
+  }finally{state.switchingTask=false;renderPracticeTasks();renderNotice();updateControls();}
+}
 
 async function changeChapter(ch,taskId=defaultTask(ch),{fromTeacher=false,transition=true}={}){
   cancelCardDrag?.();
@@ -620,10 +646,16 @@ let roomApply=Promise.resolve();
 function acceptRoom(data){roomApply=roomApply.then(()=>applyRoom(data)).catch(e=>{console.error(e);toast('课堂状态同步未完成，请检查连接');});return roomApply;}
 async function applyRoom(data){
   if(!data.session||state.session&&(data.session.id!==state.session.id||data.session.version<state.session.version))return;
-  const previous=state.session,changed=data.session.chapterId!==state.chapter||data.assignment?.taskId&&data.assignment.taskId!==state.taskId;
+  // A late heartbeat/SSE snapshot must not undo a more recent task selection.
+  const currentTaskVersion=state.learner?.taskVersion||0,incomingTaskVersion=data.learner?.taskVersion??data.assignment?.taskVersion??0;
+  if(incomingTaskVersion<currentTaskVersion){
+    data={...data,learner:data.learner?{...data.learner,taskId:state.learner.taskId,taskVersion:currentTaskVersion}:state.learner,
+      assignment:data.assignment?{...data.assignment,taskVersion:currentTaskVersion,...(data.session.chapterId===3?{taskId:state.learner.taskId,draftId:`${state.learner.id}-3-${state.learner.taskId}`}:{})}:state.assignment};
+  }
+  const previous=state.session,chapterChanged=data.session.chapterId!==state.chapter,changed=chapterChanged||data.assignment?.taskId&&data.assignment.taskId!==state.taskId;
   state.session=data.session;if(data.learner)state.learner=data.learner;if(data.assignment)state.assignment=data.assignment;
   await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
-  if(changed)await changeChapter(state.session.chapterId,data.assignment?.taskId||(state.session.chapterId===3?state.learner.taskId:defaultTask(state.session.chapterId)),{fromTeacher:true});
+  if(changed)await changeChapter(state.session.chapterId,data.assignment?.taskId||(state.session.chapterId===3?state.learner.taskId:defaultTask(state.session.chapterId)),{fromTeacher:chapterChanged,transition:chapterChanged});
   if(!changed&&state.session.phase==='explain'&&previous?.phase==='practice')await stopRun('interrupted','老师开始讲解');
   if(state.session.phase==='ended'&&previous?.phase!=='ended'){await stopRun('interrupted','课堂已结束');await persistNow({kind:'archive'});}
   state.teacherPaused=state.session.phase==='paused';
@@ -732,7 +764,7 @@ $('#historyList').onclick=async e=>{
   if(e.target.dataset.history){const r=state.runs.find(r=>r.id===e.target.dataset.history);viewGraph(r.graph,`第${r.chapterId}站 · 当时的作品`);}
   if(e.target.dataset.backup){const value=await db.get(e.target.dataset.backup);viewGraph(value.graph,'保留的本机副本');}
   if(e.target.dataset.draft){const value=await db.get(e.target.dataset.draft);viewGraph(value.graph,'当前保存的草稿');}
-  if(e.target.dataset.restore){const r=state.runs.find(r=>r.id===e.target.dataset.restore);if(!r||state.running)return;if(!TASKS.some(t=>t.chapterId===r.chapterId&&t.id===r.taskId))return toast('旧版任务作品保留在记录中，可查看和下载。');if(state.session&&(r.chapterId!==state.chapter||!allowed()))return toast('只能恢复老师当前开放章节的草稿');if(r.chapterId!==state.chapter||r.taskId!==state.taskId)await changeChapter(r.chapterId,r.taskId);if(beforeEdit()){state.graph=currentDeliveryDraft(copy(r.graph));state.selected=null;changed();$('#historyDialog').close();toast('已恢复为新草稿，请重新运行并提交');}}
+  if(e.target.dataset.restore){const r=state.runs.find(r=>r.id===e.target.dataset.restore);if(!r||state.running)return;if(!TASKS.some(t=>t.chapterId===r.chapterId&&t.id===r.taskId))return toast('旧版任务作品保留在记录中，可查看和下载。');if(state.session&&(r.chapterId!==state.chapter||!allowed()))return toast('只能恢复老师当前开放章节的草稿');if(state.session&&r.chapterId===3&&r.taskId!==state.taskId){if(!await selectPracticeTask(r.taskId))return;}else if(r.chapterId!==state.chapter||r.taskId!==state.taskId)await changeChapter(r.chapterId,r.taskId);if(beforeEdit()){state.graph=currentDeliveryDraft(copy(r.graph));state.selected=null;changed();$('#historyDialog').close();toast('已恢复为新草稿，请重新运行并提交');}}
 };
 window.addEventListener('online',async()=>{state.online=true;renderConnection();try{await syncCurrentClass();await alignRoom();flushQueue();}catch{}});
 window.addEventListener('offline',()=>{state.online=false;renderConnection();renderNotice();$('#saveStatus').textContent='离线 · 已保存在此设备';});

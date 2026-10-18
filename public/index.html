@@ -29,7 +29,7 @@
     </section>
     <section class="editor-panel" aria-label="流程图编辑器">
       <div class="editor-heading"><div><span class="eyebrow">MY FLOWCHART</span><h2 id="editorTitle">安排我的工作</h2></div><button id="historyTopButton" class="quiet" hidden>我的记录</button><span id="saveStatus" class="save-status" role="status">已保存在此设备</span></div>
-      <div class="task-line"><p id="taskGoal"></p><select id="localTask" aria-label="选择第三站岗位" hidden><option value="rice-roll">熟食岗位</option><option value="tea">茶饮岗位</option><option value="plant">植物岗位</option><option value="fish">观赏鱼岗位</option></select></div>
+      <div class="task-line"><p id="taskGoal"></p><nav id="practiceTasks" class="practice-tasks" aria-label="选择实践任务" hidden></nav></div>
       <div class="editor-tools"><button id="connectButton" class="quiet" title="依次点出发框和到达框的连线圆点">手动连线</button><button id="chainButton" class="quiet">按排列连线</button><button id="undoButton" class="quiet" aria-label="撤销">↶ 撤销</button><button id="clearButton" class="quiet">清空</button></div>
       <div id="flowScroll" class="flow-scroll"><div id="flowCanvas" class="flow-canvas"><svg id="flowEdges" aria-label="流程箭头"></svg><div id="flowNodes"></div></div><div class="flow-empty" id="flowEmpty">先从下面选一个操作<br><small>再调整顺序，连接成完整的流程图</small></div></div>
     </section>

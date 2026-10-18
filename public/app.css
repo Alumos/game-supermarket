@@ -191,3 +191,12 @@ body{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 .topbar,.class-notice{flex-shrink:0}
 .workspace,.class-notice:not([hidden])+.workspace{flex:1 1 0;height:auto;min-height:0;width:100%;margin:0 auto}
 .toast{bottom:calc(var(--site-footer-height) + 12px)}
+
+/* Keep all four practice tasks visible, including in a teacher-led classroom. */
+.task-line:has(.practice-tasks:not([hidden])){flex-direction:column;align-items:stretch;gap:7px}
+.practice-tasks{display:flex;gap:6px;flex-wrap:wrap}
+.practice-tasks button{flex:1;min-width:55px;min-height:36px;padding:5px 8px;border:1px solid #a8c7dd;border-radius:7px;background:#e6f1fb;color:#285e81;font-size:12px;font-weight:650;white-space:nowrap}
+.practice-tasks button[aria-pressed=true]{background:#f5d487;border-color:#b98a36;color:#694917;box-shadow:inset 0 -2px 0 #dcba70}
+.practice-tasks button:not(:disabled):hover{border-color:#477c9d;background:#d8eafa}
+.practice-tasks button[aria-pressed=true]:not(:disabled):hover{background:#f5d487;border-color:#b98a36}
+.practice-tasks button:focus-visible{outline:3px solid #bb872e;outline-offset:2px}

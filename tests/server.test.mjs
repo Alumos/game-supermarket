@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { request as httpRequest } from 'node:http';
 import { createClassroomServer } from '../server.mjs';
 import { exampleGraph, simulate, buildGraph, DELIVERY_MAP } from '../shared/engine.mjs';
 
@@ -234,4 +235,73 @@ test('an old tab cannot read or upload its queue with another classroom learner 
  const returned=await call('/api/student/auto-join',{cookie:next.cookie,method:'POST',body:{deviceToken}});assert.equal(returned.learner.id,old.learner.id);
  const saved=await call(`/api/student/drafts/${draftId}`,{cookie:returned.cookie,headers:oldHeaders,method:'PUT',body:queued});assert.equal(saved.draft.learnerId,old.learner.id);assert.equal(saved.draft.sessionId,oldSession.id);
  assert.equal((await call('/api/student/works',{cookie:next.cookie,headers:{'X-Supermarket-Learner':next.learner.id}})).drafts.length,0);
+});
+
+test('third chapter tasks are freely selected, persist, and retain independent classroom works',async t=>{
+ const h=await autoJoinHarness(t),{call}=h,deviceToken='task-choice-device-000000000000000001';
+ const teacher=await call('/api/teacher/login',{method:'POST',body:{key:'auto-test'}});
+ let {session}=await call('/api/sessions',{cookie:teacher.cookie,method:'POST',body:{name:'四区自主实践'},status:201});
+ const first=await call('/api/student/auto-join',{method:'POST',body:{deviceToken}}),cookie=first.cookie,learnerId=first.learner.id;
+ const headers={'X-Supermarket-Learner':learnerId};
+ const student=(path,options={})=>call(path,{cookie,headers,...options});
+ const choose=(taskId,options={})=>student('/api/student/task',{method:'POST',body:{taskId},...options});
+ const command=async(action,chapterId)=>{session=(await call(`/api/sessions/${session.id}/commands`,{cookie:teacher.cookie,method:'POST',body:{action,chapterId,commandId:`${action}-${session.version}`,expectedVersion:session.version}})).session;};
+ await choose('tea',{status:409});
+ await command('chapter',3);await choose('tea',{status:409});await command('practice');
+ let selected=first.learner.taskId,taskVersion=0;
+ assert.equal(first.learner.taskVersion,0);assert.equal(first.assignment.taskVersion,0);
+ for(const taskId of ['rice-roll','tea','plant','fish']){
+  if(selected!==taskId)taskVersion++;
+  const changed=await choose(taskId);selected=taskId;
+  assert.equal(changed.learner.taskId,taskId);assert.equal(changed.assignment.taskId,taskId);
+  assert.equal(changed.learner.taskVersion,taskVersion);assert.equal(changed.assignment.taskVersion,taskVersion);
+  assert.equal((await choose(taskId)).assignment.taskVersion,taskVersion);
+  const graph=exampleGraph(3,taskId,'best'),result=simulate(graph),draftId=changed.assignment.draftId;
+  assert.equal(result.completed,true);
+  const saved=await student(`/api/student/drafts/${draftId}`,{method:'PUT',body:{graph,baseRevision:0,mutationId:`save-${taskId}`}});
+  assert.equal(saved.draft.revision,1);assert.equal(saved.draft.taskId,taskId);
+  const {run}=await student('/api/student/runs',{method:'POST',body:{runId:`run-${taskId}`,draftId,revision:1,graph,status:'completed',executedNodes:result.trace.map(x=>x.nodeId)}});
+  assert.equal(run.valid,true);assert.equal(run.taskId,taskId);
+  await student('/api/student/submissions',{method:'POST',body:{submissionId:`submit-${taskId}`,draftId,revision:1,runId:run.id,explanation:`独立说明-${taskId}`}});
+ }
+ const refresh=await student(`/api/sessions/${session.id}/state`);assert.equal(refresh.assignment.taskId,'fish');assert.equal(refresh.assignment.taskVersion,taskVersion);
+ const rejoined=await call('/api/student/auto-join',{cookie,method:'POST',body:{deviceToken}});assert.equal(rejoined.learner.id,learnerId);assert.equal(rejoined.assignment.taskId,'fish');assert.equal(rejoined.assignment.taskVersion,taskVersion);
+ let works=await student('/api/student/works');
+ for(const key of ['drafts','draftVersions','runs','submissions'])assert.deepEqual(works[key].map(x=>x.taskId).sort(),['fish','plant','rice-roll','tea']);
+ const rice=works.drafts.find(d=>d.taskId==='rice-roll'),tea=works.drafts.find(d=>d.taskId==='tea');
+ await student(`/api/student/drafts/${rice.id}`,{method:'PUT',body:{graph:tea.graph,baseRevision:1,mutationId:'cross-task-draft-id'},status:409});
+ assert.equal((await student('/api/student/works')).drafts.find(d=>d.id===rice.id).taskId,'rice-roll');
+ // A save authenticated before the task switch must not overwrite the later learner selection.
+ const slowPayload=JSON.stringify({graph:tea.graph,baseRevision:1,mutationId:'overlapping-tea-save'}),requestStarted=once(h.app.server,'request');
+ let slowRequest;
+ const slowSave=new Promise((resolve,reject)=>{slowRequest=httpRequest({host:'127.0.0.1',port:h.app.server.address().port,path:`/api/student/drafts/${tea.id}`,method:'PUT',headers:{cookie,...headers,'content-type':'application/json'}},response=>{let body='';response.setEncoding('utf8');response.on('data',chunk=>body+=chunk);response.on('end',()=>{try{assert.equal(response.statusCode,200,body);resolve(JSON.parse(body));}catch(error){reject(error);}});});slowRequest.on('error',reject);slowRequest.write(slowPayload.slice(0,1));});
+ t.after(()=>slowRequest.destroy());await requestStarted;
+ taskVersion++;await choose('tea');slowRequest.end(slowPayload.slice(1));await slowSave;
+ assert.equal((await student(`/api/sessions/${session.id}/state`)).assignment.taskId,'tea');
+ assert.equal((await student(`/api/sessions/${session.id}/state`)).assignment.taskVersion,taskVersion);
+ taskVersion++;await choose('fish');
+ await choose('delivery',{status:400});await choose('unknown',{status:400});
+ const mismatch=await choose('tea',{headers:{'X-Supermarket-Learner':'other-learner'},status:409});assert.equal(mismatch.identityMismatch,true);
+ await command('pause');await choose('tea',{status:409});await choose('fish',{status:409});
+ // A previously selected task can still upload its immutable work while another task is selected.
+ const offlineGraph=structuredClone(rice.graph);offlineGraph.nodes[1].label='饭卷独立修改';
+ const offline=await student(`/api/student/drafts/${rice.id}`,{method:'PUT',body:{graph:offlineGraph,baseRevision:1,mutationId:'offline-rice',offline:true}});assert.equal(offline.draft.revision,2);
+ await student('/api/student/runs',{method:'POST',body:{runId:'offline-rice-run',draftId:rice.id,revision:2,graph:offlineGraph,status:'completed',executedNodes:simulate(offlineGraph).trace.map(x=>x.nodeId),offline:true}});
+ await student('/api/student/submissions',{method:'POST',body:{submissionId:'offline-rice-sub',draftId:rice.id,revision:2,runId:'offline-rice-run',offline:true}});
+ await command('resume');assert.equal((await student(`/api/sessions/${session.id}/state`)).assignment.taskId,'fish');
+ await command('chapter',4);await command('practice');await choose('tea',{status:409});
+ // Fixed tasks in other chapters remain strict, even when supplied graph steps are otherwise valid.
+ await student(`/api/student/drafts/${learnerId}-invalid`,{method:'PUT',body:{graph:{...exampleGraph(3,'tea','best'),chapterId:4},baseRevision:0,mutationId:'wrong-chapter-task'},status:400});
+ works=await call(`/api/sessions/${session.id}/works`,{cookie:teacher.cookie});
+ assert.deepEqual([...new Set(works.submissions.filter(s=>s.source==='chapter').map(s=>s.taskId))].sort(),['fish','plant','rice-roll','tea']);
+ const exportText=async format=>{const response=await fetch(`http://127.0.0.1:${h.app.server.address().port}/api/sessions/${session.id}/export?format=${format}`,{headers:{cookie:teacher.cookie}});assert.equal(response.status,200);return response.text();};
+ const csv=await exportText('csv'),html=await exportText('html');
+ for(const taskId of ['rice-roll','tea','plant','fish']){
+  assert.ok(csv.split('\r\n').some(row=>row.includes(`"${taskId}","3","已完成","已提交"`)),`CSV has separate ${taskId} statistics`);
+  assert.ok(html.includes(`实践区 · ${taskId}</h3>`));
+  assert.equal(html.split(`独立说明-${taskId}`).length-1,1,`print includes ${taskId} explanation once`);
+ }
+ await h.restart({teacherKey:'auto-test'});
+ const persisted=await call('/api/student/auto-join',{method:'POST',body:{deviceToken}});assert.equal(persisted.learner.id,learnerId);assert.equal(persisted.learner.taskId,'fish');assert.equal(persisted.learner.taskVersion,taskVersion);
+ const retained=await call('/api/student/works',{cookie:persisted.cookie});assert.equal(retained.drafts.length,4);assert.equal(retained.runs.length,5);
 });

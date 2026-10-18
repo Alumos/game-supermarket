@@ -50,3 +50,9 @@ Root owns public/index.html,app.js,app.css,db.js; package.json,README.md and bro
 
 
 Student layout v1.2.0: all ordinary flowcharts and delivery programs use one centered top-to-bottom column at every viewport. data-columns remains 1; no snake rows or responsive column wrapping. Standard programs compact their action/terminal heights and connector gaps to use the available canvas; longer programs retain legible controls and scroll vertically inside the canvas. Step inspection has priority over the scrollable palette/coordinate lists. Run/pause/stop/submit controls stay in a compact bottom area; the registration footer participates in viewport layout. Drag insertion uses vertical boundaries while preserving body-area acceptance, muted 92% pending ghosts and elastic displacement.
+
+### 第三章任务选择（v1.3.1）
+
+`POST /api/student/task {taskId}` 允许在第三章已开放操作时选择 `rice-roll|tea|plant|fish`，使用学生 cookie 与 `X-Supermarket-Learner` 身份校验。返回完整课堂 state；`learner.taskId` 为当前选择，`learner.taskVersion` / `assignment.taskVersion` 每次换任务递增，同任务重复请求不递增。客户端忽略低版本的任务选择快照。其他章节、暂停或未开放操作时拒绝切换。
+
+四个任务的草稿、运行和提交按学生、章节、任务分别保存，先前任务仍可离线补传；一个 draft ID 不得改成另一任务或章节。教师列表按作品任务筛选，详情可选择各任务，CSV 和打印导出分别包含已有任务作品。
