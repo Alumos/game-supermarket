@@ -1,5 +1,5 @@
 // Responsive layout acceptance uses real touch input and the real offline rules.
-// The only injected data is a fresh example draft before the student app starts.
+// Fixtures seed fresh example drafts and reserve the real classroom-notice space.
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import {mkdtempSync,rmSync,existsSync,mkdirSync} from 'node:fs';
@@ -17,7 +17,7 @@ const {server}=createClassroomServer({dataDir,teacherKey:'isolated-layout-test'}
 const output=process.env.SUPERMARKET_TEST_OUTPUT?resolve(process.env.SUPERMARKET_TEST_OUTPUT):null;
 if(output)mkdirSync(output,{recursive:true});
 const cases=[{chapter:1,task:'drink-swap',steps:3},{chapter:2,task:'fresh-juice',steps:5},{chapter:3,task:'rice-roll',steps:5},{chapter:3,task:'tea',steps:5},{chapter:3,task:'plant',steps:5},{chapter:3,task:'fish',steps:5},{chapter:4,task:'delivery',steps:8}];
-const viewports=[{width:1440,height:1000},{width:1280,height:720},{width:1180,height:820},{width:1024,height:768},{width:768,height:1024}];
+const viewports=[{width:1440,height:900},{width:1366,height:768},{width:1280,height:720},{width:1180,height:820},{width:1024,height:768},{width:768,height:1024}];
 const results=[],errors=[];
 let browser;
 try{
@@ -39,19 +39,28 @@ try{
     await page.goto(origin+'/');await page.locator('#flowNodes .flow-node').nth(scenario.steps+1).waitFor();
     await page.locator('#transition').waitFor({state:'hidden'});
     async function settled(){await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));await page.waitForFunction(()=>!document.querySelector('.layout-in-motion,.flow-shifting'));await page.waitForTimeout(100);}
-    async function measure(label,{fullGraph=true}={}){
+    async function measure(label){
+      // Toasts are temporary action feedback; inspect the settled workspace.
+      await page.locator('#toast').waitFor({state:'hidden'});
       await settled();
       const layout=await page.evaluate(()=>{
         const rect=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
         const flow=document.querySelector('#flowScroll');
         return {
           viewport:{width:innerWidth,height:innerHeight},document:{width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight},
-          scene:rect(document.querySelector('.scene-panel')),editor:rect(document.querySelector('.editor-panel')),tools:rect(document.querySelector('.control-panel')),world:rect(document.querySelector('#world')),run:rect(document.querySelector('#runButton')),
-          footer:rect(document.querySelector('.site-footer')),registration:rect(document.querySelector('.site-footer a')),
+          header:rect(document.querySelector('.topbar')),scene:rect(document.querySelector('.scene-panel')),editor:rect(document.querySelector('.editor-panel')),tools:rect(document.querySelector('.control-panel')),world:rect(document.querySelector('#world')),run:rect(document.querySelector('#runButton')),
+          footer:rect(document.querySelector('.site-footer')),registration:rect(document.querySelector('.site-footer a')),submit:rect(document.querySelector('#submitButton')),
+          columns:Number(document.querySelector('#flowNodes').dataset.columns),
+          inspector:document.querySelector('#inspector').hidden?null:{...rect(document.querySelector('#inspector')),controls:[...document.querySelectorAll('#inspector label,#inspector input,#inspector select,#inspector button')].map(element=>{
+            const bounds=rect(element);let clip={left:0,top:0,right:innerWidth,bottom:innerHeight};
+            for(let parent=element.parentElement;parent;parent=parent.parentElement){const style=getComputedStyle(parent),r=rect(parent);if(/hidden|clip|auto|scroll/.test(style.overflowX)){clip.left=Math.max(clip.left,r.left);clip.right=Math.min(clip.right,r.right);}if(/hidden|clip|auto|scroll/.test(style.overflowY)){clip.top=Math.max(clip.top,r.top);clip.bottom=Math.min(clip.bottom,r.bottom);}}
+            const hit=document.elementFromPoint(bounds.left+bounds.width/2,bounds.top+bounds.height/2);
+            return {name:element.id||element.textContent.trim()||element.tagName,...bounds,clip,covered:!element.contains(hit)&&!hit?.contains(element)};
+          })},
           flow:{...rect(flow),scrollHeight:flow.scrollHeight,clientHeight:flow.clientHeight,scrollWidth:flow.scrollWidth,clientWidth:flow.clientWidth,scrollTop:flow.scrollTop,scrollLeft:flow.scrollLeft},
           nodes:[...document.querySelectorAll('#flowNodes .flow-node')].map(node=>{
             const bounds=rect(node),hit=document.elementFromPoint(bounds.left+bounds.width/2,bounds.top+bounds.height/2);
-            return {id:node.dataset.node,...bounds,covered:hit?.closest('[data-node]')?.dataset.node!==node.dataset.node};
+            return {id:node.dataset.node,terminal:node.classList.contains('terminal'),...bounds,coveredBy:hit?.id||hit?.className,covered:hit?.closest('[data-node]')?.dataset.node!==node.dataset.node};
           })
         };
       });
@@ -63,22 +72,37 @@ try{
       assert.ok(Math.abs(layout.footer.bottom-layout.viewport.height)<=1,describe+': registration footer stays at viewport bottom');
       assert.ok(layout.registration.top>=layout.footer.top&&layout.registration.bottom<=layout.footer.bottom+1,describe+': registration link stays inside its footer');
       for(const [name,bounds] of [['scene',layout.scene],['editor',layout.editor],['tools',layout.tools]])assert.ok(bounds.bottom<=layout.footer.top+1,describe+`: ${name} is above the registration footer`);
-      for(const [name,bounds] of [['map',layout.world],['run button',layout.run],['registration link',layout.registration]]){
+      for(const [name,bounds] of [['map',layout.world],['run button',layout.run],['submit button',layout.submit],['registration link',layout.registration]]){
         assert.ok(bounds.width>0&&bounds.height>0,describe+`: ${name} is empty`);
         assert.ok(bounds.left>=-1&&bounds.top>=-1&&bounds.right<=layout.viewport.width+1&&bounds.bottom<=layout.viewport.height+1,describe+`: ${name} outside viewport `+diagnostic());
       }
       if(layout.viewport.width>layout.viewport.height){
+        assert.ok(layout.header.height<=60,describe+': landscape header is compact');
         assert.ok(layout.editor.width>layout.scene.width&&layout.editor.width>layout.tools.width,describe+': middle canvas should be the widest');
         assert.ok(Math.abs(layout.scene.top-layout.editor.top)<=1&&Math.abs(layout.tools.top-layout.editor.top)<=1&&Math.abs(layout.scene.bottom-layout.editor.bottom)<=1&&Math.abs(layout.tools.bottom-layout.editor.bottom)<=1,describe+': three columns must align at top and bottom');
         assert.ok(layout.editor.left>=layout.scene.right-1,describe+': map and editor should be side by side');
       }
-      if(fullGraph){
+      assert.equal(layout.columns,1,describe+': every program remains a single vertical column');
+      const center=layout.nodes[0].left+layout.nodes[0].width/2;
+      for(const [index,node] of layout.nodes.entries()){
+        assert.ok(Math.abs(node.left+node.width/2-center)<=1,describe+`: ${node.id} shares the vertical centerline`);
+        if(index)assert.ok(node.top>=layout.nodes[index-1].bottom-1,describe+`: ${node.id} follows the previous node downwards`);
+      }
+      if(layout.inspector){
+        assert.ok(layout.inspector.bottom<=layout.run.top+1,describe+': inspector clears execution buttons');
+        for(const control of layout.inspector.controls){
+          assert.ok(control.width>0&&control.height>0,describe+`: inspector ${control.name} is empty`);
+          assert.ok(control.left>=control.clip.left-1&&control.right<=control.clip.right+1&&control.top>=control.clip.top-1&&control.bottom<=control.clip.bottom+1,describe+`: inspector ${control.name} is clipped `+JSON.stringify(control));
+          assert.equal(control.covered,false,describe+`: inspector ${control.name} is covered`);
+        }
+      }
+      {
         assert.ok(layout.flow.scrollHeight<=layout.flow.clientHeight+2,describe+': flow requires vertical scrolling '+diagnostic());
         assert.ok(layout.flow.scrollWidth<=layout.flow.clientWidth+2,describe+': flow requires horizontal scrolling '+diagnostic());
         for(const node of layout.nodes){
           assert.ok(node.left>=layout.flow.left-1&&node.right<=layout.flow.right+1&&node.top>=layout.flow.top-1&&node.bottom<=layout.flow.bottom+1,describe+`: ${node.id} outside visible flow `+diagnostic());
-          assert.equal(node.covered,false,describe+`: ${node.id} covered by another control`);
-          assert.ok(node.width>=44&&node.height>=40,describe+`: ${node.id} was made too small to read/tap`);
+          assert.equal(node.covered,false,describe+`: ${node.id} covered by ${node.coveredBy}`);
+          assert.ok(node.width>=44&&node.height>=(node.terminal?30:40),describe+`: ${node.id} was made too small to read/tap`);
         }
       }
       return layout;
@@ -119,8 +143,7 @@ try{
     }
     for(const viewport of viewports){
       await page.setViewportSize(viewport);
-      const portrait=viewport.width<viewport.height;
-      const normal=await measure('normal',{fullGraph:!portrait});
+      const normal=await measure('normal');
       if(scenario.chapter===4){
         const coordinateLayouts=await page.locator('#flowNodes .program-block:not(.terminal)').evaluateAll(nodes=>nodes.map(node=>{
           const rect=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};};
@@ -131,17 +154,27 @@ try{
       await verifyArrows('after resize');
       const first=page.locator('#flowNodes .flow-node').nth(1);
       await first.locator('[data-grip]').tap();await page.locator('#inspector').waitFor({state:'visible'});
-      const selected=await measure('selected',{fullGraph:!portrait});
+      const selected=await measure('selected');
       await verifyMapPainted('after selecting action');
       const done=page.locator('[data-edit=done]');assert.equal(await done.isEnabled(),true);
       if(scenario.chapter===4)assert.equal(await page.locator('#flowNodes .block-destination').count(),scenario.steps,'every delivery block retains its destination label element at each viewport');
       if(scenario.chapter===1){await page.locator('[data-param=from]').selectOption('A');await page.locator('[data-param=to]').selectOption('C');}
       else if(scenario.chapter===4){assert.equal(await page.locator('#inspector [data-destination] option[value^=J]').count(),0);assert.equal(await page.locator('#coordinateCards [data-coordinate^=J]').count(),0);assert.deepEqual(await page.locator('#coordinateCards [data-coordinate]').evaluateAll(cards=>cards.map(card=>card.dataset.coordinate)),['W','A','B','C','D','E','F','G','H','I']);assert.doesNotMatch(await page.locator('#coordinateCards').innerText(),/\bx\b|\by\b/);await page.locator('#inspector [data-destination]').selectOption('A');assert.equal(await page.locator('#flowNodes [data-node-coordinate=x]').first().inputValue(),'4');assert.equal(await page.locator('#flowNodes [data-node-coordinate=y]').first().inputValue(),'7');await page.locator('#inspector [data-destination]').selectOption('W');assert.equal(await page.locator('#flowNodes [data-node-coordinate=y]').first().inputValue(),'1');for(const [axis,value] of [['x','10'],['y','3']]){await page.locator(`#flowNodes [data-node-coordinate=${axis}]`).first().fill(value);await page.locator(`#flowNodes [data-node-coordinate=${axis}]`).first().press('Tab');}
       }else{await page.locator('#nodeLabel').fill('确认这一步');await page.locator('#nodeLabel').press('Tab');}
-      await measure('parameter edited',{fullGraph:!portrait});
+      await measure('parameter edited');
       if(output)await page.screenshot({path:join(output,`layout-${scenario.task}-${viewport.width}x${viewport.height}-editing.png`)});
       await done.tap();assert.equal(await page.locator('#inspector').isVisible(),false);
-      await measure('inspector closed',{fullGraph:!portrait});await verifyArrows('after touch edit');
+      await measure('inspector closed');await verifyArrows('after touch edit');
+      if(scenario.chapter===4&&((viewport.width===1280&&viewport.height===720)||(viewport.width===768&&viewport.height===1024))){
+        // The classroom suite covers authentication. This layout fixture uses
+        // the real notice element and classroom copy to reserve its exact space.
+        await first.locator('[data-grip]').tap();
+        await page.evaluate(()=>{const notice=document.querySelector('#classNotice');notice.hidden=false;notice.textContent='五年级顺序结构课堂 · 可以操作了。先画流程图，再运行、修改并提交。';});
+        await measure('classroom notice and selected step');
+        if(output)await page.screenshot({path:join(output,`layout-${scenario.task}-${viewport.width}x${viewport.height}-classroom-editing.png`)});
+        await page.locator('[data-edit=done]').tap();
+        await page.evaluate(()=>{document.querySelector('#classNotice').hidden=true;});
+      }
       results.push({task:scenario.task,steps:scenario.steps,...viewport,mapShare:Number((normal.scene.width/(normal.scene.width+normal.editor.width+normal.tools.width)).toFixed(3)),flow:{height:normal.flow.clientHeight,content:normal.flow.scrollHeight},selectedFlow:{height:selected.flow.clientHeight,content:selected.flow.scrollHeight}});
       if(output)await page.screenshot({path:join(output,`layout-${scenario.task}-${viewport.width}x${viewport.height}.png`)});
     }
@@ -156,13 +189,13 @@ try{
       });
       return actions.slice(0,2);
     });
-    assert.ok(pair,`${scenario.task}: adaptive layout should offer adjacent actions in one row for touch drag regression`);
+    assert.equal(pair.length,2,`${scenario.task}: vertical layout offers two actions for touch drag regression`);
+    assert.ok(Math.abs(pair[0].x-pair[1].x)<=1&&pair[1].y>pair[0].y,`${scenario.task}: touch reorder targets the next action below`);
     assert.ok(pair[0].grip,`${scenario.task}: another hit region covers the touch drag handle`);
     const [from,to]=pair,cdp=await context.newCDPSession(page);
     // Aim the card body into the target's explicit after half. The pointer
     // itself is offset by the left-side grip and must not stand in for its center.
-    const horizontal=scenario.chapter!==4&&Math.abs(from.y-to.y)<2,direction=horizontal?(Math.sign(to.x-from.x)||1):1;
-    const destination={x:to.x+(from.grip.x-from.x)+(horizontal?to.width*.3*direction:0),y:to.y+(from.grip.y-from.y)+(horizontal?0:to.height*.3)};
+    const destination={x:to.x+(from.grip.x-from.x),y:to.y+(from.grip.y-from.y)+to.height*.3};
     await page.evaluate(()=>{
       globalThis.__layoutTouchEvents=[];
       for(const type of ['pointerdown','pointermove','pointerup','pointercancel','gotpointercapture','lostpointercapture'])document.addEventListener(type,event=>{
@@ -189,6 +222,11 @@ try{
     if(await doneAfterDrag.isVisible())await doneAfterDrag.tap();
     if(scenario.chapter!==4){
     await page.locator('#connectButton').tap();
+    const portHits=await page.locator('#flowNodes .flow-node').evaluateAll(nodes=>nodes.slice(0,3).flatMap(node=>[...node.querySelectorAll('[data-port]')].map(port=>{
+      const r=port.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+      return {node:node.dataset.node,port:port.dataset.port,side:port.dataset.side,hit:hit===port};
+    })));
+    for(const port of portHits){assert.equal(port.hit,true,`${scenario.task}: ${port.node} ${port.port} port has an unobstructed touch target`);assert.equal(port.side,port.port==='in'?'top':'bottom',`${scenario.task}: single-column ports face vertically`);}
     await page.locator('#flowNodes .flow-node').nth(0).locator('[data-port=out]').tap();
     await page.locator('#flowNodes .flow-node').nth(1).locator('[data-port=in]').tap();
     await page.locator('#connectButton').tap();

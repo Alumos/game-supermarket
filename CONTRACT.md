@@ -47,3 +47,6 @@ A class pause/next cannot erase records. Assignment stable room+learner task3 ba
 
 ## Root student UI
 Root owns public/index.html,app.js,app.css,db.js; package.json,README.md and browser integration tests. Implement room join/practice mode, teacher gating, graph editor, parameters, save queue, run loop consume trace/events, submissions, chapters, comparisons and review.
+
+
+Student layout v1.2.0: all ordinary flowcharts and delivery programs use one centered top-to-bottom column at every viewport. data-columns remains 1; no snake rows or responsive column wrapping. Standard programs compact their action/terminal heights and connector gaps to use the available canvas; longer programs retain legible controls and scroll vertically inside the canvas. Step inspection has priority over the scrollable palette/coordinate lists. Run/pause/stop/submit controls stay in a compact bottom area; the registration footer participates in viewport layout. Drag insertion uses vertical boundaries while preserving body-area acceptance, muted 92% pending ghosts and elastic displacement.

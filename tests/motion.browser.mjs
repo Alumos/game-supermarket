@@ -129,22 +129,25 @@ try{
 
   await setup({count:12,width:1024,height:768});
   {
+    await nodes().last().scrollIntoViewIfNeeded();await idle();
     const order=await ids(),before=await rects(),drag=await startDrag(page.locator('[data-coordinate=C]'));
-    assert.ok(Number(await page.locator('#flowNodes').getAttribute('data-columns'))>1);
+    assert.equal(Number(await page.locator('#flowNodes').getAttribute('data-columns')),1);
+    assert.equal(await page.locator('#flowScroll').evaluate(el=>el.scrollHeight>el.clientHeight),true,'long program has internal vertical scrolling');
     await record();await drag.move(align(drag,before[order.at(-1)]));await preview('before');await idle();
-    const after=await rects(),trace=await stop('delivery-columns');animated(trace,before,after);
-    assert.ok(Object.keys(before).some(id=>Math.abs(after[id].x-before[id].x)>100),'column insertion really moves a block between columns');
-    assert.ok(Object.keys(before).some(id=>Math.abs(after[id].height-before[id].height)>1),'column insertion really changes block size');
-    await screenshot('delivery-columns-open');await drag.release();await clean();
+    const after=await rects(),trace=await stop('delivery-scrolled-column');animated(trace,before,after);
+    assert.ok(Object.keys(before).every(id=>Math.abs(after[id].x+after[id].width/2-before[id].x-before[id].width/2)<1),'insertion keeps all blocks on the same vertical centerline');
+    assert.ok(Object.keys(before).some(id=>Math.abs(after[id].y-before[id].y)>10),'single-column insertion makes vertical room');
+    await screenshot('delivery-scrolled-column-open');await drag.release();await clean();
     const next=await ids(),added=next.find(id=>!order.includes(id));assert.equal(next.indexOf(added),order.length-1);
   }
-  checks.push('delivery: 1024px long program animates column and size changes, then inserts before the selected last block');
+  checks.push('delivery: 1024px long program scrolls as one column, animates vertical space, then inserts before the selected last block');
 
   await setup({chapter:2,task:'fresh-juice',count:10,width:1024,height:768});
   {
+    await nodes().first().scrollIntoViewIfNeeded();await idle();
     const order=await ids(),before=await rects(),drag=await startDrag(page.locator('#actionCards [data-palette-drag]').first(),{touch:true});
-    await record();await drag.move(align(drag,before[order[0]],{fraction:.85,axis:'x'}));await preview('after');await idle();
-    animated(await stop('ordinary-snake'),before,await rects());await screenshot('ordinary-snake-open');await drag.release();await clean();
+    await record();await drag.move(align(drag,before[order[0]],{fraction:.85}));await preview('after');await idle();
+    animated(await stop('ordinary-vertical'),before,await rects());await screenshot('ordinary-vertical-open');await drag.release();await clean();
     const next=await ids(),added=next.find(id=>!order.includes(id));assert.equal(next.indexOf(added),1);
     const arrows=await page.locator('#flowEdges path[data-edge]').evaluateAll(paths=>paths.map(path=>{const m=path.getScreenCTM(),length=path.getTotalLength();const point=d=>{const p=path.getPointAtLength(d),s=new DOMPoint(p.x,p.y).matrixTransform(m);return {x:s.x,y:s.y};};return {length,start:point(0),end:point(length)};}));
     const boxes=await page.locator('#flowNodes .flow-node').evaluateAll(elements=>elements.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};}));
@@ -152,7 +155,7 @@ try{
     const near=(point,rect)=>Math.hypot(Math.max(rect.left-point.x,0,point.x-rect.right),Math.max(rect.top-point.y,0,point.y-rect.bottom))<=24;
     arrows.forEach((arrow,i)=>{assert.ok(arrow.length>0&&near(arrow.start,boxes[i])&&near(arrow.end,boxes[i+1]),`ordinary arrow ${i} remains connected after motion`);});
   }
-  checks.push('fresh-juice: touch horizontal snake insertion animates existing cards and keeps final arrows connected');
+  checks.push('fresh-juice: touch vertical insertion animates existing cards and keeps final arrows connected');
 
   await setup({reducedMotion:'reduce'});
   {

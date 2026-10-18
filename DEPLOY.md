@@ -11,12 +11,12 @@ VPS 需先安装 Docker Engine 和 Docker Compose v2，确保 `docker compose ve
 ```sh
 mkdir -p game-supermarket
 cd game-supermarket
-curl -fL https://raw.githubusercontent.com/Alumos/game-supermarket/v1.1.0/compose.yaml -o compose.yaml
+curl -fL https://raw.githubusercontent.com/Alumos/game-supermarket/v1.2.0/compose.yaml -o compose.yaml
 docker compose up -d
 docker compose ps
 ```
 
-默认会从 `ghcr.milu.moe/alumos/game-supermarket:v1.1.0` 拉取固定版本。安全组和防火墙放行 TCP 18790，然后打开：
+默认会从 `ghcr.milu.moe/alumos/game-supermarket:v1.2.0` 拉取固定版本。安全组和防火墙放行 TCP 18790，然后打开：
 
 - 教师入口：`http://你的VPS公网IP:18790/teacher.html`
 - 学生入口：`http://你的VPS公网IP:18790/`
@@ -46,7 +46,7 @@ SUPERMARKET_PUBLIC_URL=http://你的VPS公网IP:18790
 加速源暂不可用或刚发布尚未同步时，将 `.env` 中的镜像改为 GHCR 官方地址：
 
 ```dotenv
-SUPERMARKET_IMAGE=ghcr.io/alumos/game-supermarket:v1.1.0
+SUPERMARKET_IMAGE=ghcr.io/alumos/game-supermarket:v1.2.0
 ```
 
 然后执行：
@@ -117,18 +117,18 @@ location / {
 
 ## 发布新版本（维护者）
 
-GitHub Actions 配置位于 `.github/workflows/image.yml`。代码推送到仓库后，推送形如 `v1.1.0` 的正式版本标签即可触发：
+GitHub Actions 配置位于 `.github/workflows/image.yml`。代码推送到仓库后，推送形如 `v1.2.0` 的正式版本标签即可触发：
 
 ```sh
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
-工作流先在 Node.js 24 上执行 `npm test`，成功后构建 `linux/amd64` 和 `linux/arm64`，使用仓库的 `GITHUB_TOKEN` 向 GHCR 推送镜像。发布名称会自动转成小写，`v1.1.0` 对应：
+工作流先在 Node.js 24 上执行 `npm test`，成功后构建 `linux/amd64` 和 `linux/arm64`，使用仓库的 `GITHUB_TOKEN` 向 GHCR 推送镜像。发布名称会自动转成小写，`v1.2.0` 对应：
 
 ```text
-ghcr.io/alumos/game-supermarket:v1.1.0
-ghcr.io/alumos/game-supermarket:1.1.0
+ghcr.io/alumos/game-supermarket:v1.2.0
+ghcr.io/alumos/game-supermarket:1.2.0
 ghcr.io/alumos/game-supermarket:latest
 ```
 

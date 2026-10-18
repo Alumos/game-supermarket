@@ -100,6 +100,7 @@ try{
     return {axis,direction};
   }
   async function addAtEnd(source,options){
+    await page.locator('#flowNodes .terminal').last().scrollIntoViewIfNeeded();await motionSettled();
     const before=await nodes().count(),end=await bounds(page.locator('#flowNodes .terminal').last()),drag=await startDrag(source,options);
     await drag.move(align(drag,end,{fraction:.15}));await drag.finish();
     assert.equal(await nodes().count(),before+1,'end drop adds one action');
@@ -160,7 +161,7 @@ try{
   await dirtyDrag.finish();assert.deepEqual(await ids(),[pendingOrder[1],pendingId]);
   assert.equal(await page.locator(`#flowNodes [data-node="${pendingId}"] [data-node-coordinate=x]`).inputValue(),'9','reordered block retains committed coordinate');
   await undo(pendingOrder);
-  checks.push('delivery: dragging a dirty coordinate commits its value, preserves capture across repeated columns, reorders correctly, and clears state');
+  checks.push('delivery: dragging a dirty coordinate commits its value, preserves capture across repeated tool/canvas crossings, reorders correctly, and clears state');
 
 
   for(const width of [1440,1024]){
@@ -188,28 +189,32 @@ try{
 
   await setup(4,'delivery',{width:1024,height:768});
   for(let i=0;i<12;i++)await addAtEnd(coordinate('A'));
-  assert.ok(Number(await page.locator('#flowNodes').getAttribute('data-columns'))>1,'long delivery program spans columns');
+  assert.equal(Number(await page.locator('#flowNodes').getAttribute('data-columns')),1,'long delivery program retains one column');
+  assert.equal(await page.locator('#flowScroll').evaluate(el=>el.scrollHeight>el.clientHeight),true,'long delivery program scrolls internally');
   for(const side of ['before','after']){
     await page.waitForTimeout(320);
-    const order=await ids(),target=await bounds(nodes().last()),drag=await startDrag(coordinate('B'),{touch:true});
-    await drag.move(align(drag,target,{fraction:side==='before'?.2:.8}));await preview(order.at(-1),side);
+    const targetIndex=7;
+    await nodes().nth(targetIndex).evaluate(el=>el.scrollIntoView({block:'center'}));await motionSettled();
+    const order=await ids(),target=await bounds(nodes().nth(targetIndex)),drag=await startDrag(coordinate('B'),{touch:true});
+    await drag.move(align(drag,target,{fraction:side==='before'?.2:.8}));await preview(order[targetIndex],side);
     await drag.finish();const next=await ids(),added=next.find(id=>!order.includes(id));
-    assert.equal(next.indexOf(added),order.length-(side==='before'?1:0),'second-column drop respects the selected side');await undo(order);
+    assert.equal(next.indexOf(added),targetIndex+(side==='before'?0:1),'scrolled single-column drop respects the selected side');await undo(order);
   }
-  checks.push('delivery: long two-column program keeps upper/lower seams visible, leaves original blocks readable, and inserts at the shown side');
+  checks.push('delivery: long single-column program scrolls internally, keeps upper/lower seams visible and original blocks readable, and inserts at the shown side');
 
   await setup(2,'fresh-juice',{width:1024,height:768});
   const cards=()=>page.locator('#actionCards [data-palette-drag]');
   for(let i=0;i<10;i++)await addAtEnd(cards().nth(i%await cards().count()));
-  assert.ok(Number(await page.locator('#flowNodes').getAttribute('data-columns'))>1,'ordinary graph offers a real horizontal row');
+  assert.equal(Number(await page.locator('#flowNodes').getAttribute('data-columns')),1,'ordinary graph retains one column at 1024px');
+  await nodes().first().scrollIntoViewIfNeeded();await motionSettled();
   const order=await ids(),target=await bounds(nodes().first()),drag=await startDrag(cards().nth(2));
-  // Ordinary flowcharts follow their arrow direction across a row.
-  await drag.move(align(drag,target,{fraction:.8,axis:'x'}));
-  const ordinaryPreview=await preview(order[0],'after');assert.equal(ordinaryPreview.axis,'x');
+  // Ordinary flowcharts use the same upper/lower insertion direction as delivery.
+  await drag.move(align(drag,target,{fraction:.8}));
+  const ordinaryPreview=await preview(order[0],'after');assert.equal(ordinaryPreview.axis,'y');
   await screenshot('ordinary-flowchart-snap');await drag.finish();
   const next=await ids();assert.equal(next.indexOf(order[0])+1,next.findIndex(id=>!order.includes(id)));
   assert.equal(await page.locator('#flowEdges path[data-edge]').count(),12,'ordinary arrows remain connected');
-  checks.push('fresh-juice: ordinary flowchart keeps horizontal insertion and connected arrows');
+  checks.push('fresh-juice: ordinary flowchart keeps vertical insertion and connected arrows');
 
   assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,checks,pageErrors:errors},null,2));
 }catch(error){

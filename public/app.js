@@ -49,7 +49,7 @@ function renderChapter(){
   $('#editorTitle').textContent=delivery?'我的配送程序':'安排我的工作';$('#runButton').textContent=delivery?'▶ 运行配送程序':'▶ 运行流程图';
   $('#toolHint').textContent=delivery?'拖动蓝色积木到画布，按顺序拼接。':'把操作卡拖入画布；拖回工具区可以删除。';
   $('#paletteHint').textContent=delivery?'拖动蓝色积木到画布':'拖动蓝色卡片到画布';
-  $('#executionHint').textContent=delivery?'从上到下执行，分列时接右列':'按箭头顺序，一步一步执行';
+  $('#executionHint').textContent=delivery?'从上到下，依次执行配送积木':'按箭头顺序，一步一步执行';
   $('#structureHelp').textContent=delivery?'把移动积木依次拼接。每块沿横向或纵向道路直走；转弯要再加一块。途经地址会自动交付。点地图探路不计入成绩。':'圆角框表示开始和结束，方框写操作，箭头表示执行顺序。点地面探路不会改变任务结果。';
   $('#connectButton').hidden=delivery;$('#chainButton').hidden=delivery;$('#demoButton').textContent=delivery?'看配送示范':'看师傅示范';
   $('#flowEmpty').innerHTML=delivery?'把右边的蓝色积木拖进来<br><small>先看坐标，再决定配送顺序</small>':'从右边拖入一个操作<br><small>再调整顺序，连接成完整的流程图</small>';
@@ -120,16 +120,31 @@ function paletteCanvasGhost(actionId,params){
   return el;
 }
 function layoutProgram(width,height,nodes){
-  const maxColumns=Math.max(1,Math.min(3,Math.floor((width+24)/204))),available=height-12;
-  let columns=1,nodeHeight=56,gap=14,found=false;
-  for(let count=1;count<=maxColumns&&!found;count++)for(const [h,g] of [[56,14],[50,12],[48,10]]){
-    columns=count;nodeHeight=h;gap=g;if(Math.ceil(nodes.length/count)*(h+g)-g<=available){found=true;break;}
+  layoutVerticalNodes(width,height,nodes,{sizes:[[44,34,8],[42,34,6],[42,32,4]],maxWidth:390,program:true});
+}
+function layoutVerticalNodes(width,height,nodes,{sizes,maxWidth,program=false}){
+  // Compact the cards and their seams to fit a standard task. Longer programs
+  // keep the smallest readable size and scroll inside the same vertical chain.
+  let choice;
+  for(const [actionHeight,terminalHeight,gap] of sizes){
+    const needed=nodes.reduce((sum,node)=>sum+(node.classList.contains('terminal')?terminalHeight:actionHeight),0)+Math.max(0,nodes.length-1)*gap+12;
+    choice={actionHeight,terminalHeight,gap,needed};
+    if(needed<=height)break;
   }
-  const rows=Math.ceil(nodes.length/columns),needed=rows*(nodeHeight+gap)-gap,cell=(width-24*(columns-1))/columns,w=Math.min(390,cell);
-  $('#flowCanvas').style.height=`${Math.max(height,needed+12)}px`;
-  const fitted=needed+12<=height;$('#flowScroll').classList.toggle('flow-fitted',fitted);$('#flowNodes').dataset.columns=columns;
-  if(fitted){$('#flowScroll').scrollTop=0;$('#flowScroll').scrollLeft=0;}
-  nodes.forEach((node,index)=>{const column=Math.floor(index/rows),row=index%rows;Object.assign(node.style,{left:`${column*(cell+24)+(cell-w)/2}px`,top:`${6+row*(nodeHeight+gap)}px`,width:`${w}px`,height:`${nodeHeight}px`});node.style.setProperty('--flow-node-height',`${nodeHeight}px`);node.classList.toggle('compact-block',w<260);});
+  const {actionHeight,terminalHeight,gap,needed}=choice,viewport=$('#flowScroll');
+  const nodeWidth=Math.min(maxWidth,width),fitted=needed<=height;
+  $('#flowCanvas').style.height=`${Math.max(height,needed)}px`;
+  viewport.classList.toggle('flow-fitted',fitted);
+  $('#flowNodes').dataset.columns='1';
+  if(fitted){viewport.scrollTop=0;viewport.scrollLeft=0;}
+  let top=6;
+  nodes.forEach(node=>{
+    const terminal=node.classList.contains('terminal'),w=terminal&&!program?Math.min(110,nodeWidth):nodeWidth,h=terminal?terminalHeight:actionHeight;
+    Object.assign(node.style,{left:`${(width-w)/2}px`,top:`${top}px`,width:`${w}px`,height:`${h}px`});
+    node.style.setProperty('--flow-node-height',`${h}px`);
+    node.classList.toggle('compact-block',program&&w<260);
+    top+=h+gap;
+  });
 }
 function requestGraphLayout(){
   cancelAnimationFrame(graphLayoutFrame);
@@ -137,46 +152,19 @@ function requestGraphLayout(){
 }
 function layoutGraph(){
   placeInspector();
-  const viewport=$('#flowScroll'),canvas=$('#flowCanvas'),style=getComputedStyle(viewport);
+  const viewport=$('#flowScroll'),style=getComputedStyle(viewport);
   const width=Math.max(100,viewport.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight));
   const height=Math.max(70,viewport.clientHeight-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom));
   const nodes=dragPreview?.order||$$('#flowNodes .flow-node');
   if(!nodes.length)return;
   if(isDelivery()){layoutProgram(width,height,nodes);return;}
-  let choice=null;
-  // Prefer a vertical chain; compact spacing before adding another column.
-  const maxColumns=Math.max(1,Math.min(4,nodes.length,Math.floor((width+28)/184)));
-  const sizes=state.connecting?[[56,46]]:[[64,30],[56,24],[52,16]];
-  for(let columns=1;columns<=maxColumns;columns++){
-    for(const [nodeHeight,gapY] of sizes){
-      const rows=Math.ceil(nodes.length/columns),needed=rows*nodeHeight+(rows-1)*gapY,candidate={columns,rows,nodeHeight,gapY,needed};
-      if(needed<=height){choice=candidate;break;}
-      if(!choice||needed<choice.needed)choice=candidate;
-    }
-    if(choice.needed<=height)break;
-  }
-  const {columns,rows,nodeHeight,gapY,needed}=choice,gapX=28;
-  const cellWidth=(width-gapX*(columns-1))/columns;
-  const nodeWidth=Math.min(columns===1?320:300,cellWidth);
-  const top=Math.min(20,Math.max(0,(height-needed)/5));
-  canvas.style.height=`${Math.max(height,needed)}px`;
-  const fitted=needed<=height;
-  viewport.classList.toggle('flow-fitted',fitted);
-  if(fitted){viewport.scrollTop=0;viewport.scrollLeft=0;}
-  $('#flowNodes').dataset.columns=columns;
-  nodes.forEach((node,index)=>{
-    const row=Math.floor(index/columns),column=row%2?columns-1-index%columns:index%columns;
-    const terminal=node.classList.contains('terminal'),w=terminal?Math.min(110,nodeWidth):nodeWidth,h=terminal?44:nodeHeight;
-    Object.assign(node.style,{left:`${column*(cellWidth+gapX)+(cellWidth-w)/2}px`,top:`${top+row*(nodeHeight+gapY)+(nodeHeight-h)/2}px`,width:`${w}px`,height:`${h}px`});
-    node.style.setProperty('--flow-node-height',`${h}px`);
-  });
+  layoutVerticalNodes(width,height,nodes,{sizes:[[56,36,24],[48,34,18],[44,32,12],[44,32,8]],maxWidth:320});
   orientFlowPorts(nodes);
 }
 function orientFlowPorts(nodes){
   const sideTo=(from,to)=>{
     const a=from.getBoundingClientRect(),b=to.getBoundingClientRect();
-    const dx=b.left+b.width/2-a.left-a.width/2,dy=b.top+b.height/2-a.top-a.height/2;
-    return Math.abs(dy)<1?(dx>0?'right':'left'):Math.abs(dx)<1?(dy>0?'bottom':'top'):Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'bottom':'top');
+    return b.top+b.height/2>=a.top+a.height/2?'bottom':'top';
   };
   nodes.forEach((node,index)=>{
     const id=node.dataset.node,incoming=state.graph.edges.find(e=>e.to===id),outgoing=state.graph.edges.find(e=>e.from===id);
@@ -198,16 +186,11 @@ function paintEdges(){
   const svg=$('#flowEdges'),box=$('#flowCanvas').getBoundingClientRect();
   const anchor=(node,port)=>{
     const r=node.getBoundingClientRect(),side=node.querySelector(`[data-port=${port}]`)?.dataset.side||'bottom';
-    return {side,x:(side==='left'?r.left-1:side==='right'?r.right+1:r.left+r.width/2)-box.left,y:(side==='top'?r.top-1:side==='bottom'?r.bottom+1:r.top+r.height/2)-box.top};
+    return {x:r.left+r.width/2-box.left,y:(side==='top'?r.top-1:r.bottom+1)-box.top};
   };
   svg.innerHTML=`<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z" fill="#4d7858"/></marker></defs>`+state.graph.edges.map((edge,i)=>{
     const a=$(`[data-node="${edge.from}"]`),b=$(`[data-node="${edge.to}"]`);if(!a||!b)return '';
-    const p=anchor(a,'out'),q=anchor(b,'in');let path=`M${p.x},${p.y} L${q.x},${q.y}`;
-    if(Math.abs(p.x-q.x)>1&&Math.abs(p.y-q.y)>1){
-      const vector=side=>({left:[-32,0],right:[32,0],top:[0,-32],bottom:[0,32]}[side]);
-      const [dx,dy]=vector(p.side),[ex,ey]=vector(q.side);
-      path=`M${p.x},${p.y} C${p.x+dx},${p.y+dy} ${q.x+ex},${q.y+ey} ${q.x},${q.y}`;
-    }
+    const p=anchor(a,'out'),q=anchor(b,'in'),path=`M${p.x},${p.y} L${q.x},${q.y}`;
     return `<path data-edge="${i}" class="flow-edge" d="${path}" marker-end="url(#arrow)"/>`;
   }).join('');
 }
@@ -347,7 +330,7 @@ function cardDropTarget(point,footprint,sourceId=null,previous=null){
   const zone=dropZone(footprint,$('.editor-panel').getBoundingClientRect(),$('.control-panel').getBoundingClientRect());
   const canvas=$('#flowCanvas').getBoundingClientRect();
   const nodes=dragLayoutBase?dragLayoutBase.map(n=>({id:n.id,rect:{left:canvas.left+n.left,top:canvas.top+n.top,right:canvas.left+n.left+n.width,bottom:canvas.top+n.top+n.height}})):$$('#flowNodes .flow-node').map(el=>({id:el.dataset.node,rect:el.getBoundingClientRect()}));
-  return {zone,insertion:zone==='editor'?insertionAt(point,footprint,nodes,{layout:isDelivery()?'vertical':'snake',sourceId,previous}):null};
+  return {zone,insertion:zone==='editor'?insertionAt(point,footprint,nodes,{layout:'vertical',sourceId,previous}):null};
 }
 function clearDropTarget(releaseLayout=null){
   if(!dragPreview&&!releaseLayout)return;

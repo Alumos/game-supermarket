@@ -58,6 +58,11 @@ try{
     }
     await settled();
     assert.equal(await page.locator('.drag-ghost').count(),1,'gesture creates one drag ghost');
+    const appearance=await page.locator('.drag-ghost').evaluate(element=>{const style=getComputedStyle(element);return {background:style.backgroundColor,opacity:Number(style.opacity),pointerEvents:style.pointerEvents};});
+    const channels=appearance.background.match(/[\d.]+/g).slice(0,3).map(Number);
+    assert.ok(Math.max(...channels)-Math.min(...channels)<=15&&Math.min(...channels)>150,'drag ghost keeps its muted gray background');
+    assert.ok(appearance.opacity>.5&&appearance.opacity<1,'drag ghost remains translucent');
+    assert.equal(appearance.pointerEvents,'none','drag ghost never intercepts the real pointer target');
     await page.waitForTimeout(120);await motionSettled();
     const ghost=await page.locator('.drag-ghost').boundingBox(),raw={x:target.x-(start.x-card.x)*dragScale,y:target.y-(start.y-card.y)*dragScale,width:card.width*dragScale,height:card.height*dragScale};
     if(await page.locator('.drag-ghost.is-snapped').count()){
