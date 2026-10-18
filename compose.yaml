@@ -1,0 +1,28 @@
+name: game-supermarket
+
+services:
+  supermarket:
+    image: ${SUPERMARKET_IMAGE:-ghcr.milu.moe/alumos/game-supermarket:v1.1.0}
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${SUPERMARKET_BIND:-0.0.0.0}:${SUPERMARKET_PORT:-18790}:8790"
+    environment:
+      PORT: "8790"
+      SUPERMARKET_DATA_DIR: /app/data
+      SUPERMARKET_PUBLIC_URL: ${SUPERMARKET_PUBLIC_URL:-}
+      SUPERMARKET_LOG_TEACHER_KEY: "0"
+    volumes:
+      - classroom-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+
+volumes:
+  classroom-data:
+    name: game-supermarket-data

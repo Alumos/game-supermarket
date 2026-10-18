@@ -1,0 +1,20 @@
+# Classroom records and teacher credentials are local to this installation.
+/data/*
+!/data/.gitkeep
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+teacher-key.txt
+
+# Local tooling and verification artifacts.
+node_modules/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+playwright-report/
+test-results/
+test-output/
+coverage/
+backups/

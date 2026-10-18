@@ -1,0 +1,9 @@
+# Allow only the runtime sources into the build context.
+**
+!Dockerfile
+!package.json
+!server.mjs
+!public/
+!public/**
+!shared/
+!shared/**

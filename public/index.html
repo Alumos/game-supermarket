@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#235a4b">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23245d4c'/%3E%3Cpath d='M14 16h36v35H14zM14 28h36M14 40h36M26 16v35M38 16v35' fill='none' stroke='%23f2d584' stroke-width='4'/%3E%3C/svg%3E">
+  <title>有序超市 · 社会实践的一天</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="有序超市首页"><span class="brand-mark">▦</span><span>有序超市<small>社会实践的一天</small></span></a>
+    <nav id="chapters" aria-label="情境地图"></nav>
+    <div class="account"><span id="connection" class="connection">自由体验</span><button id="accountButton" class="quiet">加入课堂</button></div>
+  </header>
+  <div id="classNotice" class="class-notice" hidden></div>
+  <main class="workspace">
+    <section class="scene-panel" aria-label="超市任务地图">
+      <div class="scene-heading"><div><span class="eyebrow" id="chapterNumber">第一站 / 01</span><h1 id="sceneTitle">饮料区换柜</h1></div><span class="shift-tag">今日实习生 <span id="playerName">小店员</span></span></div>
+      <div class="scene-wrap"><div id="world"></div><div class="map-hint" id="mapHint">点地面走动 · 点师傅听提示</div><div id="transition" class="transition" hidden><span>下一站</span><strong></strong><p></p></div></div>
+      <div id="metrics" class="metrics" hidden><div><small>配送用时</small><strong><span id="timeValue">0</span><i> 分钟</i></strong></div><div><small>当前金币</small><strong id="coinsValue">0</strong></div><div><small>成功送达</small><strong id="deliveredValue">0 / 6</strong></div><div><small>超时失败</small><strong id="failedValue">0</strong></div></div>
+      <section id="deliveryOrders" class="delivery-orders" hidden aria-label="六份配送订单"></section>
+      <div id="stepEditorSlot" class="step-editor-slot"></div>
+      <div class="scene-bottom"><div class="dialogue"><div class="npc-face" aria-hidden="true">▥</div><div><span id="npcName">饮料柜员</span><p id="dialogueText"></p></div><button id="demoButton" class="secondary">看师傅示范</button></div>
+      <div id="result" class="result" role="status" aria-live="polite" hidden></div>
+      <section id="comparison" class="comparison" hidden aria-label="方案用时比较"></section>
+      <details class="scene-help"><summary>任务规则与操作说明</summary><div id="rules"></div><p id="structureHelp">圆角框表示开始和结束，方框写操作，箭头表示执行顺序。点地面探路不会改变任务结果。</p></details></div>
+    </section>
+    <section class="editor-panel" aria-label="流程图编辑器">
+      <div class="editor-heading"><div><span class="eyebrow">MY FLOWCHART</span><h2 id="editorTitle">安排我的工作</h2></div><button id="historyTopButton" class="quiet" hidden>我的记录</button><span id="saveStatus" class="save-status" role="status">已保存在此设备</span></div>
+      <div class="task-line"><p id="taskGoal"></p><select id="localTask" aria-label="选择第三站岗位" hidden><option value="rice-roll">熟食岗位</option><option value="tea">茶饮岗位</option><option value="plant">植物岗位</option><option value="fish">观赏鱼岗位</option></select></div>
+      <div class="editor-tools"><button id="connectButton" class="quiet" title="依次点出发框和到达框的连线圆点">手动连线</button><button id="chainButton" class="quiet">按排列连线</button><button id="undoButton" class="quiet" aria-label="撤销">↶ 撤销</button><button id="clearButton" class="quiet">清空</button></div>
+      <div id="flowScroll" class="flow-scroll"><div id="flowCanvas" class="flow-canvas"><svg id="flowEdges" aria-label="流程箭头"></svg><div id="flowNodes"></div></div><div class="flow-empty" id="flowEmpty">先从下面选一个操作<br><small>再调整顺序，连接成完整的流程图</small></div></div>
+    </section>
+    <aside class="control-panel" aria-label="操作工具">
+      <div class="control-heading"><span class="eyebrow">TOOLBOX</span><h2>操作工具</h2><p id="toolHint">选一个操作，安排工作步骤。</p></div>
+      <div class="control-content">
+      <div id="inspector" class="inspector" hidden></div>
+      <details id="palette" class="palette" open><summary>＋ 添加操作 <span id="paletteHint">拖入画布添加</span></summary><div id="actionCards"></div></details>
+      <div id="conflict" class="conflict" hidden></div>
+      <section id="coordinateTools" class="coordinate-tools" hidden><h3>地图坐标</h3><p>拖入坐标卡；G、H、I 为道路拐点。</p><div id="coordinateCards"></div></section>
+      <div id="sceneDetailsSlot"></div>
+      </div>
+      <div class="execution-bar"><button id="runButton" class="primary">▶ 运行流程图</button><button id="pauseButton" class="secondary" disabled>暂停</button><button id="stopButton" class="secondary" disabled>停止</button><button id="submitButton" class="submit">提交作品</button></div>
+      <div class="editor-footer"><button id="historyButton" class="quiet">查看我的记录</button><span id="executionHint">按箭头顺序，一步一步执行</span></div>
+    </section>
+  </main>
+  <footer class="site-footer"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">苏ICP备2021038338号-1</a></footer>
+  <dialog id="welcome"><form method="dialog"><div class="welcome-art" aria-hidden="true"><span>▦</span><i>OPEN 09:00</i></div><span class="eyebrow">A DAY AT THE SUPERMARKET</span><h2>今天，你是小店员。</h2><p>跟着师傅学本领，把工作步骤画成流程图，<br>再让小店员照着你的安排行动。</p><button id="practiceButton" class="primary" value="practice">开始自由体验</button><button id="joinOpenButton" class="secondary" value="join">加入老师的课堂</button><a class="teacher-link" href="/teacher.html">教师工作台 ↗</a></form></dialog>
+  <dialog id="joinDialog"><form id="joinForm"><button type="button" class="dialog-close" aria-label="关闭">×</button><span class="eyebrow">CLASSROOM CHECK-IN</span><h2>领取实习工牌</h2><label>课堂码<input name="code" id="classCode" inputmode="numeric" maxlength="10" required placeholder="老师屏幕上的课堂码"></label><label>组号 / 座号<input name="seat" maxlength="16" required placeholder="例如：第 3 组"></label><label>姓名 / 小组名<input name="name" maxlength="30" required placeholder="例如：向日葵小组"></label><p id="joinError" class="error" role="alert"></p><button class="primary" type="submit">进入超市</button><button type="button" id="recoverButton" class="quiet">换设备？用老师给的恢复码找回作品</button></form></dialog>
+  <dialog id="submitDialog"><form id="submitForm"><button type="button" class="dialog-close" aria-label="关闭">×</button><span class="eyebrow">MY THINKING</span><h2>说说你的安排</h2><p id="submitPrompt"></p><textarea id="explanation" rows="4" maxlength="1500" placeholder="我先……再……，因为……"></textarea><p id="submitHint"></p><button class="primary" type="submit">保存并提交</button></form></dialog>
+  <dialog id="historyDialog" class="history-dialog"><button class="dialog-close" aria-label="关闭">×</button><span class="eyebrow">MY WORK RECORDS</span><h2>我的实践记录</h2><div id="historyList"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
