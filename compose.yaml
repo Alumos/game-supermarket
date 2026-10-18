@@ -2,7 +2,7 @@ name: game-supermarket
 
 services:
   supermarket:
-    image: ${SUPERMARKET_IMAGE:-ghcr.milu.moe/alumos/game-supermarket:v1.2.0}
+    image: ${SUPERMARKET_IMAGE:-ghcr.milu.moe/alumos/game-supermarket:v1.3.0}
     restart: unless-stopped
     init: true
     ports:
@@ -11,6 +11,8 @@ services:
       PORT: "8790"
       SUPERMARKET_DATA_DIR: /app/data
       SUPERMARKET_PUBLIC_URL: ${SUPERMARKET_PUBLIC_URL:-}
+      # 可直接将下一行的值改为带引号的自定义后台密码；也可在 .env 中配置。
+      SUPERMARKET_TEACHER_PASSWORD: ${SUPERMARKET_TEACHER_PASSWORD:-}
       SUPERMARKET_LOG_TEACHER_KEY: "0"
     volumes:
       - classroom-data:/app/data

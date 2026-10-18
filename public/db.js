@@ -98,6 +98,34 @@ export async function get(key,fallback=null) {
   const entry=newest(await both('get',key));
   return !entry || entry.deleted ? fallback : entry.value;
 }
+// Create a shared device identity in one read/write transaction. Separate tabs
+// must not each observe an empty store and enroll as different students.
+export async function getOrCreate(key,value) {
+  checkKey(key);await writes;
+  try {
+    const database=await openDatabase();
+    const entry=await new Promise((resolve,reject)=>{
+      const transaction=database.transaction(TABLE,'readwrite'),table=transaction.objectStore(TABLE);
+      let chosen;
+      const timer=setTimeout(()=>{try{transaction.abort();}catch{}reject(new Error('Device identity transaction timed out'));},2500);
+      const request=table.get(key);
+      request.onsuccess=()=>{
+        let localEntry;try{localEntry=local('get',key);}catch{}
+        chosen=newest([request.result,localEntry]);
+        if(!chosen||chosen.deleted){clock=Math.max(Date.now(),clock+1);chosen={key,value,deleted:false,stamp:`${String(clock).padStart(16,'0')}-${tabId}`};}
+        table.put(chosen);
+      };
+      transaction.oncomplete=()=>{clearTimeout(timer);resolve(chosen);};
+      transaction.onerror=transaction.onabort=()=>{clearTimeout(timer);reject(transaction.error||new Error('Device identity transaction failed'));};
+    });
+    try{local('put',key,entry);}catch{}
+    return entry.value;
+  }catch(error){
+    const fallback=()=>{const prior=local('get',key);if(prior&&!prior.deleted)return prior.value;clock=Math.max(Date.now(),clock+1);local('put',key,{key,value,deleted:false,stamp:`${String(clock).padStart(16,'0')}-${tabId}`});return value;};
+    try{return globalThis.navigator?.locks?await navigator.locks.request(`${PREFIX}${key}`,fallback):fallback();}
+    catch(localError){throw unavailable('device identity',[error,localError]);}
+  }
+}
 function write(key,value,deleted) {
   checkKey(key);
   const operation=writes.then(async()=>{

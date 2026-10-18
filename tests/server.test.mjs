@@ -119,3 +119,119 @@ test('explicit student context selects only the student cookie when both roles c
  const absentStudentLogout=await fetch(base+'/api/logout',{method:'POST',headers:{cookie:teacher.cookie,'X-Supermarket-Role':'student'}});assert.match(absentStudentLogout.headers.get('set-cookie'),/^sm_student=/);assert.doesNotMatch(absentStudentLogout.headers.get('set-cookie'),/sm_teacher=/);
  }finally{await new Promise(r=>app.server.close(r));rmSync(dir,{recursive:true,force:true});}
 });
+
+async function autoJoinHarness(t,{teacherKey='auto-test',dir=mkdtempSync(join(tmpdir(),'supermarket-auto-'))}={}){
+ let app,base;
+ const start=async options=>{app=createClassroomServer({dataDir:dir,...options});app.server.listen(0,'127.0.0.1');await once(app.server,'listening');base=`http://127.0.0.1:${app.server.address().port}`;};
+ await start({teacherKey});
+ t.after(async()=>{await app.shutdown();rmSync(dir,{recursive:true,force:true});});
+ const call=async(path,{cookie='',headers={},method='GET',body,status=200}={})=>{const r=await fetch(base+path,{method,headers:{cookie,...headers,...body?{'content-type':'application/json'}:{}},body:body?JSON.stringify(body):undefined}),data=await r.json();assert.equal(r.status,status,JSON.stringify(data));return {...data,cookie:r.headers.get('set-cookie')?.split(';')[0]||cookie};};
+ return {call,get app(){return app;},dir,restart:async options=>{await app.shutdown();await start(options);}};
+}
+
+test('automatic joining is private, balanced, concurrent, durable and isolated between classrooms',async t=>{
+ const h=await autoJoinHarness(t),{call}=h,token='private-browser-device-00000000000001';
+ assert.deepEqual(await call('/api/student/current'),{session:null,cookie:''});
+ assert.equal((await call('/api/student/auto-join',{method:'POST',body:{deviceToken:token}})).learner,null);
+ await call('/api/student/auto-join',{method:'POST',body:{deviceToken:'A1'},status:400});
+ const teacher=await call('/api/teacher/login',{method:'POST',body:{key:'auto-test'}});
+ let {session}=await call('/api/sessions',{cookie:teacher.cookie,method:'POST',body:{name:'自动编号一课'},status:201});const firstId=session.id;
+ const current=await call('/api/student/current');assert.deepEqual(Object.keys(current.session).sort(),['chapterId','id','name','phase','version']);assert.equal(current.session.id,firstId);
+ const join=(deviceToken,cookie='')=>call('/api/student/auto-join',{method:'POST',cookie,body:{deviceToken}});
+ const same=await Promise.all(Array.from({length:12},()=>join(token)));assert.equal(new Set(same.map(x=>x.learner.id)).size,1);
+ const first=same[0];assert.equal(first.learner.autoCode,'A1');assert.equal(first.learner.seat,'A1');assert.equal(first.learner.name,'A1');assert.equal(first.session.phase,'waiting');assert.equal(first.assignment.taskId,'drink-swap');
+ const people=await Promise.all(Array.from({length:59},(_,i)=>join(`private-browser-number-${String(i).padStart(12,'0')}`)));
+ const all=[first,...people];assert.equal(new Set(all.map(x=>x.learner.autoCode)).size,60);assert.deepEqual(all.map(x=>Number(x.learner.autoCode.slice(1))).sort((a,b)=>a-b),Array.from({length:60},(_,i)=>i+1));
+ const counts={};for(const p of all)counts[p.learner.taskId]=(counts[p.learner.taskId]||0)+1;assert.deepEqual(counts,{'rice-roll':15,tea:15,plant:15,fish:15});
+ assert.equal((await join(token)).learner.id,first.learner.id);assert.equal((await join('another-device-token-0000000000000001',teacher.cookie+'; '+first.cookie)).learner.id,first.learner.id);
+ assert.equal(h.app.db.prepare('SELECT COUNT(*) AS n FROM records WHERE json LIKE ?').get('%'+token+'%').n,0);
+ const command=async(action,extra={})=>{session=(await call(`/api/sessions/${session.id}/commands`,{method:'POST',cookie:teacher.cookie,body:{action,commandId:`${action}-${session.version}`,expectedVersion:session.version,...extra}})).session;};
+ await command('practice');const graph=exampleGraph(1,'drink-swap','best'),draftId=first.assignment.draftId;
+ await call(`/api/student/drafts/${draftId}`,{cookie:first.cookie,method:'PUT',body:{graph,baseRevision:0,mutationId:'auto-save'}});
+ const oldSession=session;
+ ({session}=await call('/api/sessions',{cookie:teacher.cookie,method:'POST',body:{name:'自动编号二课'},status:201}));
+ const secondId=session.id,newIdentity=await join(token,first.cookie);assert.equal(newIdentity.learner.autoCode,'A1');assert.notEqual(newIdentity.learner.id,first.learner.id);assert.equal(newIdentity.assignment.draftId.includes(newIdentity.learner.id),true);
+ assert.equal((await call('/api/student/works',{cookie:newIdentity.cookie})).drafts.length,0);
+ await call(`/api/student/drafts/${draftId}`,{cookie:newIdentity.cookie,method:'PUT',body:{graph,baseRevision:1,mutationId:'cross-class'},status:409});
+ // Pausing an old classroom cannot silently steal the active classroom.
+ const paused=(await call(`/api/sessions/${firstId}/commands`,{cookie:teacher.cookie,method:'POST',body:{action:'pause',commandId:'pause-old',expectedVersion:oldSession.version}})).session;
+ assert.equal((await call('/api/sessions',{cookie:teacher.cookie})).currentSessionId,secondId);
+ session=paused;await command('set-current');assert.equal((await call(`/api/sessions/${firstId}/state`,{cookie:teacher.cookie})).currentSessionId,firstId);
+ const returned=await join(token,newIdentity.cookie);assert.equal(returned.learner.id,first.learner.id);assert.equal(returned.session.phase,'paused');assert.equal((await call('/api/student/works',{cookie:returned.cookie})).drafts[0].id,draftId);
+ await h.restart();assert.equal((await call('/api/student/current')).session.id,firstId);assert.equal((await join(token)).learner.id,first.learner.id);
+ await command('end');assert.equal((await call('/api/student/current')).session,null);assert.equal((await join(token)).learner,null);
+ await h.restart();assert.equal((await call('/api/student/current')).session,null);
+ // Selecting then deleting the remaining classroom also preserves the empty selection.
+ session=(await call(`/api/sessions/${secondId}/state`,{cookie:teacher.cookie})).session;await command('set-current');
+ await call(`/api/sessions/${secondId}`,{cookie:teacher.cookie,method:'DELETE'});assert.equal((await call('/api/student/current')).session,null);
+ await h.restart();assert.equal((await call('/api/student/current')).session,null);
+});
+
+test('recovering without classroom code transfers device access and keeps the original automatic number',async t=>{
+ const {call}=await autoJoinHarness(t),teacher=await call('/api/teacher/login',{method:'POST',body:{key:'auto-test'}});
+ const {session}=await call('/api/sessions',{cookie:teacher.cookie,method:'POST',body:{},status:201}),oldDevice='old-device-secret-00000000000000001',newDevice='new-device-secret-00000000000000001';
+ const first=await call('/api/student/auto-join',{method:'POST',body:{deviceToken:oldDevice}});
+ const {recoveryCode}=await call('/api/teacher/recover',{cookie:teacher.cookie,method:'POST',body:{learnerId:first.learner.id}});
+ await call('/api/student/recover',{method:'POST',body:{code:'wrong',recoveryCode},status:403});
+ const recovered=await call('/api/student/recover',{method:'POST',body:{recoveryCode,deviceToken:newDevice}});assert.equal(recovered.learner.id,first.learner.id);assert.equal(recovered.learner.autoCode,'A1');assert.equal(recovered.assignment.draftId,first.assignment.draftId);
+ await call('/api/student/works',{cookie:first.cookie,status:403});
+ assert.equal((await call('/api/student/auto-join',{method:'POST',body:{deviceToken:newDevice}})).learner.id,first.learner.id);
+ const old=await call('/api/student/auto-join',{method:'POST',body:{deviceToken:oldDevice}});assert.notEqual(old.learner.id,first.learner.id);assert.equal(old.learner.autoCode,'A2');
+ await call('/api/student/recover',{method:'POST',body:{code:session.code,recoveryCode},status:403});
+});
+
+test('current classroom migrates only once and environment password overrides persistent volumes and old cookies',async t=>{
+ const original=process.env.SUPERMARKET_TEACHER_PASSWORD;delete process.env.SUPERMARKET_TEACHER_PASSWORD;
+ t.after(()=>{if(original===undefined)delete process.env.SUPERMARKET_TEACHER_PASSWORD;else process.env.SUPERMARKET_TEACHER_PASSWORD=original;});
+ const h=await autoJoinHarness(t,{teacherKey:'old-file-key'}),{call}=h;
+ const old=await call('/api/teacher/login',{method:'POST',body:{key:'old-file-key'}});
+ for(const [id,phase,createdAt] of [['old','practice',1],['latest','paused',2],['ended','ended',3]])h.app.db.prepare('INSERT INTO records(kind,id,json) VALUES(?,?,?)').run('session',id,JSON.stringify({id,name:id,chapterId:1,phase,createdAt,version:1}));
+ h.app.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run('settings','current-classroom');
+ process.env.SUPERMARKET_TEACHER_PASSWORD='new-env-password';await h.restart({teacherKey:'lower-priority-option'});
+ assert.equal(h.app.key,'new-env-password');assert.equal((await call('/api/student/current')).session.id,'latest');
+ await call('/api/sessions',{cookie:old.cookie,status:403});
+ for(const key of ['old-file-key','lower-priority-option'])await call('/api/teacher/login',{method:'POST',body:{key},status:403});
+ const env=await call('/api/teacher/login',{method:'POST',body:{key:'new-env-password'}});
+ assert.equal((await call('/api/sessions',{cookie:env.cookie})).currentSessionId,'latest');
+ assert.equal(h.app.db.prepare('SELECT COUNT(*) AS n FROM records WHERE json LIKE ?').get('%new-env-password%').n,0);
+ await h.restart();assert.equal((await call('/api/sessions',{cookie:env.cookie})).sessions.length,3);
+ delete process.env.SUPERMARKET_TEACHER_PASSWORD;await h.restart({teacherKey:'explicit-option'});
+ await call('/api/sessions',{cookie:env.cookie,status:403});await call('/api/teacher/login',{method:'POST',body:{key:'explicit-option'}});
+ await h.restart();assert.equal(h.app.key,'old-file-key');await call('/api/teacher/login',{method:'POST',body:{key:'old-file-key'}});
+ await call('/api/sessions',{cookie:old.cookie,status:403}); // Restoring an older password must not revive its revoked cookies.
+});
+
+test('an old tab cannot read or upload its queue with another classroom learner cookie',async t=>{
+ const h=await autoJoinHarness(t),{call}=h,deviceToken='shared-tabs-browser-000000000000000001';
+ const teacher=await call('/api/teacher/login',{method:'POST',body:{key:'auto-test'}});
+ const create=async name=>{
+  let {session}=await call('/api/sessions',{cookie:teacher.cookie,method:'POST',body:{name},status:201});
+  session=(await call(`/api/sessions/${session.id}/commands`,{cookie:teacher.cookie,method:'POST',body:{action:'practice',commandId:'practice',expectedVersion:session.version}})).session;
+  return session;
+ };
+ const oldSession=await create('旧标签页课堂'),old=await call('/api/student/auto-join',{method:'POST',body:{deviceToken}});
+ const graph=exampleGraph(1,'drink-swap','best'),result=simulate(graph),draftId=old.assignment.draftId;
+ const queued={graph,baseRevision:0,mutationId:'old-tab-first-upload'},original=structuredClone(queued);
+ const nextSession=await create('新标签页课堂'),next=await call('/api/student/auto-join',{cookie:old.cookie,method:'POST',body:{deviceToken}});
+ assert.notEqual(next.learner.id,old.learner.id);
+ const before=h.app.db.prepare('SELECT kind,id,json FROM records ORDER BY kind,id').all();
+ const oldHeaders={'X-Supermarket-Learner':old.learner.id};
+ for(const [path,method,body] of [
+  [`/api/student/drafts/${draftId}`,'PUT',queued],
+  ['/api/student/works','GET'],
+  ['/api/student/ack','POST',{version:nextSession.version,chapterId:1}],
+  ['/api/student/runs','POST',{runId:'old-tab-run',draftId,revision:1,graph,status:'completed',executedNodes:result.trace.map(x=>x.nodeId)}],
+  ['/api/student/submissions','POST',{submissionId:'old-tab-submission',draftId,revision:1}]
+ ]){
+  const denied=await call(path,{cookie:next.cookie,headers:oldHeaders,method,body,status:409});assert.equal(denied.identityMismatch,true);
+ }
+ await call('/api/student/works',{cookie:next.cookie,headers:{'X-Supermarket-Learner':''},status:409});
+ assert.deepEqual(h.app.db.prepare('SELECT kind,id,json FROM records ORDER BY kind,id').all(),before);
+ assert.deepEqual(queued,original);
+ assert.equal((await call('/api/student/works',{cookie:next.cookie,headers:{'X-Supermarket-Learner':next.learner.id}})).drafts.length,0);
+ // Rejoining the original classroom lets the still-pending transaction reach its original owner.
+ await call(`/api/sessions/${oldSession.id}/commands`,{cookie:teacher.cookie,method:'POST',body:{action:'set-current',commandId:'return-old',expectedVersion:oldSession.version}});
+ const returned=await call('/api/student/auto-join',{cookie:next.cookie,method:'POST',body:{deviceToken}});assert.equal(returned.learner.id,old.learner.id);
+ const saved=await call(`/api/student/drafts/${draftId}`,{cookie:returned.cookie,headers:oldHeaders,method:'PUT',body:queued});assert.equal(saved.draft.learnerId,old.learner.id);assert.equal(saved.draft.sessionId,oldSession.id);
+ assert.equal((await call('/api/student/works',{cookie:next.cookie,headers:{'X-Supermarket-Learner':next.learner.id}})).drafts.length,0);
+});

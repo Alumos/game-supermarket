@@ -12,7 +12,7 @@
   <header class="topbar">
     <a class="brand" href="/" aria-label="有序超市首页"><span class="brand-mark">▦</span><span>有序超市<small>社会实践的一天</small></span></a>
     <nav id="chapters" aria-label="情境地图"></nav>
-    <div class="account"><span id="connection" class="connection">自由体验</span><button id="accountButton" class="quiet">加入课堂</button></div>
+    <div class="account"><span id="connection" class="connection" role="status">正在连接</span><button id="accountButton" class="quiet" disabled>领取编号…</button></div>
   </header>
   <div id="classNotice" class="class-notice" hidden></div>
   <main class="workspace">
@@ -47,8 +47,9 @@
     </section>
   </main>
   <footer class="site-footer"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">苏ICP备2021038338号-1</a></footer>
-  <dialog id="welcome"><form method="dialog"><div class="welcome-art" aria-hidden="true"><span>▦</span><i>OPEN 09:00</i></div><span class="eyebrow">A DAY AT THE SUPERMARKET</span><h2>今天，你是小店员。</h2><p>跟着师傅学本领，把工作步骤画成流程图，<br>再让小店员照着你的安排行动。</p><button id="practiceButton" class="primary" value="practice">开始自由体验</button><button id="joinOpenButton" class="secondary" value="join">加入老师的课堂</button><a class="teacher-link" href="/teacher.html">教师工作台 ↗</a></form></dialog>
-  <dialog id="joinDialog"><form id="joinForm"><button type="button" class="dialog-close" aria-label="关闭">×</button><span class="eyebrow">CLASSROOM CHECK-IN</span><h2>领取实习工牌</h2><label>课堂码<input name="code" id="classCode" inputmode="numeric" maxlength="10" required placeholder="老师屏幕上的课堂码"></label><label>组号 / 座号<input name="seat" maxlength="16" required placeholder="例如：第 3 组"></label><label>姓名 / 小组名<input name="name" maxlength="30" required placeholder="例如：向日葵小组"></label><p id="joinError" class="error" role="alert"></p><button class="primary" type="submit">进入超市</button><button type="button" id="recoverButton" class="quiet">换设备？用老师给的恢复码找回作品</button></form></dialog>
+  <dialog id="welcome"><form method="dialog"><div class="welcome-art" aria-hidden="true"><span>▦</span><i>OPEN 09:00</i></div><span class="eyebrow">A DAY AT THE SUPERMARKET</span><h2>今天，你是小店员。</h2><p>老师开课后会自动加入并领取编号，<br>不用填写课堂码、组号和姓名。</p><button id="practiceButton" class="primary" value="practice">先自由体验</button><button id="joinOpenButton" class="secondary" value="join">等待老师开课</button><a class="teacher-link" href="/teacher.html">教师工作台 ↗</a></form></dialog>
+  <dialog id="identityDialog"><button type="button" class="dialog-close" aria-label="关闭">×</button><span class="eyebrow">我的实习工牌</span><h2 id="identityCode" class="identity-code"></h2><p id="identityClass"></p><p>老师会按这个编号查看你的作品。<br>使用这台设备继续学习，刷新页面编号不变。</p><button type="button" id="recoverButton" class="secondary">换设备找回作品</button></dialog>
+  <dialog id="recoverDialog"><form id="recoverForm"><button type="button" class="dialog-close" aria-label="关闭">×</button><h2>找回原来的工牌</h2><p>换设备时，请老师为原编号生成恢复码。</p><label>一次性恢复码<input id="recoveryCode" autocomplete="off" maxlength="20" required placeholder="输入老师给你的恢复码"></label><p id="recoverError" class="error" role="alert"></p><button class="primary" type="submit">找回作品</button></form></dialog>
   <dialog id="submitDialog"><form id="submitForm"><button type="button" class="dialog-close" aria-label="关闭">×</button><span class="eyebrow">MY THINKING</span><h2>说说你的安排</h2><p id="submitPrompt"></p><textarea id="explanation" rows="4" maxlength="1500" placeholder="我先……再……，因为……"></textarea><p id="submitHint"></p><button class="primary" type="submit">保存并提交</button></form></dialog>
   <dialog id="historyDialog" class="history-dialog"><button class="dialog-close" aria-label="关闭">×</button><span class="eyebrow">MY WORK RECORDS</span><h2>我的实践记录</h2><div id="historyList"></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>

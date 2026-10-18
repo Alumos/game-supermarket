@@ -38,10 +38,10 @@ try{
  await teacher.goto(origin+'/teacher.html');await teacher.locator('#key').fill('isolated-browser-test');await teacher.locator('#login-form button').click();await teacher.locator('#login-dialog').waitFor({state:'hidden'});
  let {session}=await json(teacherContext,'/api/sessions',{method:'POST',body:{name:'自动验收 · 完整课堂'},status:201});
  await teacher.reload();await teacher.locator('#room-title').filter({hasText:'自动验收'}).waitFor();
- await student.goto(origin+'/?code='+session.code);await student.locator('#joinDialog').waitFor({state:'visible'});await student.locator('#classCode').fill(session.code);await student.locator('[name=seat]').fill('1');await student.locator('[name=name]').fill('向日葵小组');await student.locator('#joinForm [type=submit]').click();await student.locator('#joinDialog').waitFor({state:'hidden'});
+ await student.goto(origin+'/');await poll(async()=>await student.locator('#accountButton').textContent().then(t=>t.trim()==='A1'),{label:'root URL automatically joins as A1'});assert.equal(await student.locator('#joinDialog').isVisible(),false);
  await poll(async()=>{const d=await works();return d.learners.length===1&&d.learners[0].appliedVersion===session.version;},{label:'student chapter acknowledgement'});
  const me=await json(studentContext,'/api/me');assert.equal(me.role,'student');const learnerId=me.learner.id,assigned=me.learner.taskId;
- assert.equal(await student.locator('#runButton').isDisabled(),true);checks.push('student joins with a separate cookie; waiting room gates editing');
+ assert.equal(await student.locator('#runButton').isDisabled(),true);checks.push('root URL automatically joins as A1 with a separate cookie; waiting room gates editing');
  // Permission isolation is checked using this real student context.
  await json(studentContext,`/api/sessions/${session.id}/works`,{status:403});
  await teacher.locator('#practice').click();await student.locator('#runButton').waitFor({state:'visible'});await poll(()=>student.locator('#runButton').isEnabled(),{label:'practice gate'});

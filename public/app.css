@@ -41,6 +41,8 @@
 .flow-node .port[data-side=right],.flow-node.terminal .port[data-side=right]{right:-24px;top:50%;transform:translateY(-50%)}
 .step-editor-slot{flex-shrink:0}
 .step-editor-slot:empty{display:none}
+.account .student-badge{min-width:46px;min-height:34px;padding:4px 10px;border:1px solid #adcbb2;background:#e1eddd;color:#245d4c;border-radius:8px;font-size:16px;font-weight:800;letter-spacing:.5px}
+.identity-code{font-size:42px;color:var(--green);letter-spacing:2px}
 
 @media (min-width:701px){
   .topbar{height:56px;min-height:56px;padding:6px 16px;gap:16px;flex-wrap:nowrap}

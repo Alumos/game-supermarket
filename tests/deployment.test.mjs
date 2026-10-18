@@ -27,7 +27,7 @@ test('container health, configured public origin, secure cookies and stream shut
   const created=await fetch(base+'/api/sessions',{method:'POST',headers:{Cookie:cookie,Origin:'https://classroom.example','Content-Type':'application/json'},body:'{}'});
   assert.equal(created.status,201);
   const {session,joinUrl}=await created.json();
-  assert.equal(joinUrl,`https://classroom.example/?code=${session.code}`);
+  assert.equal(joinUrl,'https://classroom.example/');
   const stream=await fetch(base+`/api/sessions/${session.id}/stream`,{headers:{Cookie:cookie}});
   const reader=stream.body.getReader();
   await reader.read();

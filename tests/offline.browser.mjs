@@ -32,7 +32,7 @@ try{
  }
  await api(teacherContext,'/api/teacher/login',{key:'offline-browser-test'});let {session}=await api(teacherContext,'/api/sessions',{name:'离线切章补传验收'});
  await teacher.goto(origin+'/teacher.html');await teacher.locator('#room-title').filter({hasText:'离线切章'}).waitFor();
- await student.goto(origin+'/?code='+session.code);await student.locator('#joinDialog').waitFor({state:'visible'});await student.locator('[name=seat]').fill('9');await student.locator('[name=name]').fill('离线测试小组');await student.locator('#joinForm [type=submit]').click();await student.locator('#joinDialog').waitFor({state:'hidden'});
+ await student.goto(origin+'/');await poll(async()=>await student.locator('#accountButton').textContent().then(t=>t.trim()==='A1'),'root URL automatically joins as A1');assert.equal(await student.locator('#joinDialog').isVisible(),false);
  const me=await api(studentContext,'/api/me'),learnerId=me.learner.id;
  await teacher.locator('#practice').click();await poll(()=>student.locator('#runButton').isEnabled(),'chapter 1 practice');
  // Save one known online draft first, so offline edits must become a new version.

@@ -6,8 +6,8 @@ import {dragFootprint,dropZone,insertionAt,movedInsertionIndex} from './drag-dro
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-${Date.now().toString(36)}-${Array.from(globalThis.crypto?.getRandomValues?.(new Uint32Array(3))||[Math.random()*1e9,Math.random()*1e9]).map(n=>n.toString(36)).join('')}`, esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaultTask=ch=>['','drink-swap','fresh-juice','tea','delivery'][ch];
-const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,tabBlocked:false,submittedFingerprint:null,authExpired:false};
-let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer;
+const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false};
+let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId;
 const scope=()=>state.learner?.id||'practice';
 const graphKey=(ch=state.chapter,task=state.taskId)=>`draft:${scope()}:${ch}:${task}`;
 const metaKey=(key)=>`meta:${key}`;
@@ -18,7 +18,7 @@ const DRAG_SCALE=.92;
 const flowMotions=new Map();
 let flowMotionFrame=0;
 const deliveryDestinations=()=>Object.entries(DELIVERY_MAP.points).filter(([id])=>!id.startsWith('J'));
-const allowed=()=>!state.authExpired&&!state.tabBlocked&&(!state.session||state.session.phase==='practice');
+const allowed=()=>!state.joining&&!state.checkingClass&&!state.classUnavailable&&!state.authExpired&&!state.tabBlocked&&(!state.session||state.session.phase==='practice');
 const editable=()=>allowed()&&!state.running&&!state.demo;
 const cleanGraph=(ch=state.chapter,t=state.taskId)=>({schemaVersion:1,chapterId:ch,taskId:t,contentVersion:'1.0.0',...(t==='delivery'?{deliveryCoordinates:'cartesian-y-up',deliveryRulesVersion:DELIVERY_RULES_VERSION}:{}),revision:0,nodes:[{id:uid(),kind:'start'},{id:uid(),kind:'end'}],edges:[]});
 const currentDeliveryDraft=graph=>{const normalized=normalizeDeliveryGraph(graph);return normalized?.taskId==='delivery'&&deliveryRulesVersion(normalized)!==DELIVERY_RULES_VERSION?{...normalized,deliveryRulesVersion:DELIVERY_RULES_VERSION}:normalized;};
@@ -26,7 +26,8 @@ function toast(message){$('#toast').textContent=message;$('#toast').hidden=false
 function storageError(e){$('#saveStatus').textContent=e.message||'设备存储不可用';$('#saveStatus').style.color='#ad6c43';toast(e.message||'设备存储不可用，请保留此页面');}
 async function safeSet(key,value){try{await db.set(key,value);return true;}catch(e){storageError(e);return false;}}
 async function api(path,options={}){
-  let response;try{response=await fetch(path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json','X-Supermarket-Role':'student',...options.headers},body:options.body===undefined?undefined:JSON.stringify(options.body)});}catch(e){state.online=false;renderConnection();throw e;}
+  const learnerHeader=state.learner&&/^\/api\/student\/(ack|drafts|runs|submissions|works)(?:\/|$)/.test(path)?{'X-Supermarket-Learner':state.learner.id}:{};
+  let response;try{response=await fetch(path,{credentials:'same-origin',signal:AbortSignal.timeout(10000),...options,headers:{'Content-Type':'application/json','X-Supermarket-Role':'student',...learnerHeader,...options.headers},body:options.body===undefined?undefined:JSON.stringify(options.body)});}catch(e){state.online=false;renderConnection();throw e;}
   const data=await response.json().catch(()=>({}));
   if(!response.ok){const error=new Error(data.error||data.message||'请求未完成');Object.assign(error,{status:response.status,data});throw error;}
   state.online=true;renderConnection();return data;
@@ -38,7 +39,16 @@ function changed(){renderGraph();scheduleSave();$('#result').hidden=true;updateC
 function scheduleSave(){clearTimeout(saveTimer);const key=graphKey(),graph=snapshot();safeSet(key,{graph,updatedAt:Date.now()}).then(ok=>{if(ok)$('#saveStatus').textContent=state.submittedFingerprint&&state.submittedFingerprint!==fingerprint(graph)?'新草稿已保存 · 需重新提交':state.learner?'已存此设备 · 等待同步':'已保存在此设备';});saveTimer=setTimeout(()=>enqueue({kind:'draft',key,graph}),650);}
 async function persistNow({kind='draft',run,submission}={}){clearTimeout(saveTimer);const key=graphKey(),graph=snapshot();await safeSet(key,{graph,updatedAt:Date.now()});return enqueue({kind,key,graph,run,submission});}
 
-function renderConnection(){const el=$('#connection');el.classList.toggle('offline',!state.online);el.textContent=state.learner?`${state.session?.code||''} · ${state.authExpired?'身份待恢复':state.online?'课堂已连接':'离线保存中'}`:'自由体验';$('#accountButton').textContent=state.authExpired?'恢复身份':state.learner?'离开课堂':'加入课堂';$('#playerName').textContent=state.learner?.name||'小店员';}
+const learnerCode=()=>state.learner?.autoCode||state.learner?.seat||state.learner?.name||'';
+function renderConnection(){
+  const el=$('#connection'),button=$('#accountButton'),code=learnerCode();
+  el.classList.toggle('offline',!state.online);
+  el.textContent=state.joining||state.checkingClass?'正在连接':state.learner?(state.authExpired?'正在恢复连接':!state.online?'离线保存中':state.session?.phase==='ended'?'课堂已结束':state.classUnavailable?'等待开课':'课堂已连接'):(state.online?'等待开课':'离线体验');
+  button.textContent=code||'重新连接';button.disabled=state.joining||state.checkingClass;
+  button.classList.toggle('student-badge',!!code);button.setAttribute('aria-label',code?`学生编号 ${code}，查看工牌`:'重新连接当前课堂');
+  button.title=code?`学生编号 ${code}`:'老师开课后会自动加入，无需填写信息';
+  $('#playerName').textContent=code||'小店员';
+}
 function renderChapter(){
   const chapter=CHAPTERS.find(c=>c.id===state.chapter),t=task(),delivery=isDelivery();
   document.body.classList.toggle('delivery-mode',delivery);
@@ -61,8 +71,10 @@ function renderChapter(){
 }
 function renderNotice(){
   const s=state.session,el=$('#classNotice');el.hidden=!s&&!state.tabBlocked;
-  if(state.authExpired){el.hidden=false;el.textContent='课堂身份已失效。本机作品仍在“我的记录”中，可以查看或下载备份。请向老师领取恢复码，恢复身份后再操作。';return;}
+  if(state.joining){el.hidden=false;el.textContent='正在领取工牌、连接老师的课堂…';return;}
+  if(state.authExpired){el.hidden=false;el.textContent='正在重新连接课堂，本机作品已保留。换设备时，可点右上角工牌，用老师的恢复码找回作品。';return;}
   if(state.tabBlocked){el.hidden=false;el.textContent='此课堂已在另一个标签页打开。请使用原标签页操作，本页可以查看作品。';return;}
+  if(state.classUnavailable){el.hidden=false;el.textContent='请等待老师开课。原课堂作品已保留，可以查看实践记录。';return;}
   if(!s)return;
   const labels={waiting:'请等待老师开始。',explain:'请先听老师讲解，开放操作后再安排流程图。',practice:'可以操作了。先画流程图，再运行、修改并提交。',paused:'老师已暂停全班操作，请抬头交流。',ended:'本次课堂已结束，作品已经保留，可以查看实践记录。'};
   el.textContent=`${s.name} · ${labels[s.phase]||''}${!state.online?' 当前离线，作品会先保存在此设备。':''}`;
@@ -72,7 +84,7 @@ function updateControls(){
   if(!edit)cancelCardDrag?.();
   if(!allowed()&&$('#submitDialog').open)$('#submitDialog').close();
   $('#runButton').disabled=!edit;$('#submitButton').disabled=!edit;$('#clearButton').disabled=!edit;$('#chainButton').disabled=!edit;$('#connectButton').disabled=!edit;$('#undoButton').disabled=!edit||!state.undo.length;$('#localTask').disabled=!edit;
-  $$('.action-card').forEach(e=>e.disabled=!edit);$('#pauseButton').disabled=!running||state.teacherPaused;$('#pauseButton').textContent=state.userPaused?'继续':'暂停';$('#stopButton').disabled=!running;$('#demoButton').disabled=running||state.tabBlocked||!!state.session&&['waiting','paused','ended'].includes(state.session.phase);
+  $$('.action-card').forEach(e=>e.disabled=!edit);$$('.chapter-tab').forEach(e=>e.disabled=!!state.session||running||state.joining||state.checkingClass);$('#pauseButton').disabled=!running||state.teacherPaused;$('#pauseButton').textContent=state.userPaused?'继续':'暂停';$('#stopButton').disabled=!running;$('#demoButton').disabled=running||state.tabBlocked||state.joining||state.checkingClass||state.classUnavailable||!!state.session&&['waiting','paused','ended'].includes(state.session.phase);
   $('#flowCanvas').classList.toggle('read-only',!edit);$('#connectButton').classList.toggle('active',state.connecting);$('#flowCanvas').classList.toggle('connecting',state.connecting);requestGraphLayout();
   updateConnectionTargets();
   world.setMode(running?'run':allowed()?'explore':'locked');$('#mapHint').textContent=running?(state.demo?'正在观看示范':isDelivery()?'正在执行配送积木':'正在按流程图行动'):isDelivery()?'底部查坐标 · 点道路可探路':'点地面走动 · 点师傅听提示';
@@ -588,7 +600,7 @@ async function flushQueue(){
     }
     if(!state.queue.length)$('#saveStatus').textContent=state.submittedFingerprint&&state.submittedFingerprint!==fingerprint(state.graph)?'新草稿已同步 · 需重新提交':'已同步到老师工作台';
   }catch(error){
-    if(error.status===401||error.status===403){$('#saveStatus').textContent='登录已失效 · 本机作品仍保留';toast('课堂身份已失效。请用老师的恢复码重新加入，作品仍保存在此设备。');state.online=false;state.authExpired=true;state.stream?.close();renderNotice();updateControls();}
+    if(error.status===401||error.status===403||error.data?.identityMismatch){$('#saveStatus').textContent='连接待恢复 · 本机作品仍保留';state.online=false;state.authExpired=true;state.stream?.close();renderNotice();updateControls();}
     else if(error.status){$('#saveStatus').textContent='本机已保存 · 同步待处理';toast(error.message);}
     else $('#saveStatus').textContent='离线 · 已保存在此设备';
   }finally{state.syncing=false;renderConnection();}
@@ -607,7 +619,7 @@ async function hydrateWorks(data){
 let roomApply=Promise.resolve();
 function acceptRoom(data){roomApply=roomApply.then(()=>applyRoom(data)).catch(e=>{console.error(e);toast('课堂状态同步未完成，请检查连接');});return roomApply;}
 async function applyRoom(data){
-  if(!data.session||state.session&&data.session.version<state.session.version)return;
+  if(!data.session||state.session&&(data.session.id!==state.session.id||data.session.version<state.session.version))return;
   const previous=state.session,changed=data.session.chapterId!==state.chapter||data.assignment?.taskId&&data.assignment.taskId!==state.taskId;
   state.session=data.session;if(data.learner)state.learner=data.learner;if(data.assignment)state.assignment=data.assignment;
   await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
@@ -619,7 +631,7 @@ async function applyRoom(data){
   renderNotice();renderConnection();updateControls();
   api('/api/student/ack',{method:'POST',body:{version:state.session.version,chapterId:state.chapter}}).catch(()=>{});
 }
-async function alignRoom(){if(!state.session)return;const data=await api(`/api/sessions/${state.session.id}/state`);await acceptRoom(data);}
+async function alignRoom(){if(!state.session)return;const id=state.session.id,data=await api(`/api/sessions/${id}/state`);if(state.session?.id===id)await acceptRoom(data);}
 function connectStream(){
   state.stream?.close();if(!state.session)return;const stream=new EventSource(`/api/sessions/${state.session.id}/stream?role=student`);state.stream=stream;
   stream.addEventListener('state',event=>{const data=JSON.parse(event.data);acceptRoom(data).then(()=>flushQueue());});
@@ -634,17 +646,72 @@ function startTabLease(){
   check();leaseTimer=setInterval(check,4000);if('BroadcastChannel' in window){channel=new BroadcastChannel(key);channel.onmessage=check;channel.postMessage('joined');}
 }
 async function enterClass(data){
-  await stopRun();clearTimeout(saveTimer);state.authExpired=false;state.learner=data.learner;state.session=data.session;state.assignment=data.assignment||null;state.tabBlocked=false;
+  const sameIdentity=state.learner?.id===data.learner.id&&state.session?.id===data.session.id;
+  clearTimeout(saveTimer);state.authExpired=true;state.classUnavailable=false;state.learner=data.learner;state.session=data.session;state.assignment=data.assignment||null;state.tabBlocked=false;state.conflict=null;renderConflict();
+  if(!sameIdentity){
+    state.chapter=data.session.chapterId;state.taskId=data.assignment?.taskId||(state.chapter===3?data.learner.taskId:defaultTask(state.chapter));
+    state.graph=cleanGraph();chain();state.selected=null;state.undo=[];state.runs=[];state.feedback=[];
+    world.setChapter(state.chapter,state.taskId);world.setState(initialState(state.chapter,state.taskId));resetMetrics();renderChapter();
+  }
   state.queue=await db.get(`queue:${scope()}`,[]);await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
   await hydrateWorks(await api('/api/student/works'));const current=await api(`/api/sessions/${state.session.id}/state`);state.assignment=current.assignment;
-  state.graph=null;await changeChapter(current.session.chapterId,current.assignment.taskId,{transition:false});await acceptRoom(current);startTabLease();connectStream();flushQueue();$('#welcome').close();$('#joinDialog').close();
+  state.graph=null;await changeChapter(current.session.chapterId,current.assignment.taskId,{transition:false});await acceptRoom(current);state.authExpired=false;startTabLease();connectStream();flushQueue();
+  for(const dialog of ['#welcome','#identityDialog','#recoverDialog'])if($(dialog).open)$(dialog).close();
 }
-function openJoin(){if($('#welcome').open)$('#welcome').close();$('#joinDialog').showModal();$('#classCode').focus();}
-$('#joinForm').onsubmit=async e=>{e.preventDefault();$('#joinError').textContent='';const submit=e.target.querySelector('[type=submit]');submit.disabled=true;try{const values=Object.fromEntries(new FormData(e.target));await enterClass(await api('/api/student/join',{method:'POST',body:values}));history.replaceState(null,'','/');toast('已领取工牌，等待老师安排任务');}catch(error){$('#joinError').textContent=error.message;}finally{submit.disabled=false;}};
-$('#recoverButton').onclick=async()=>{const code=$('#classCode').value.trim();if(!code)return toast('请先填写课堂码');const recoveryCode=prompt('请输入老师给你的恢复码');if(!recoveryCode)return;try{await enterClass(await api('/api/student/recover',{method:'POST',body:{code,recoveryCode:recoveryCode.trim()}}));toast('作品已找回，请继续实践');}catch(e){$('#joinError').textContent=e.message;}};
+async function getDeviceToken(){
+  let prior;try{prior=localStorage.getItem('supermarket.auto-device');}catch{}
+  return db.getOrCreate('autoDeviceToken',/^[-_A-Za-z0-9]{32,256}$/.test(prior||'')?prior:uid()+uid());
+}
+async function prepareClassSwitch({archive=true,persist=true}={}){
+  state.joining=true;renderConnection();renderNotice();updateControls();
+  state.stream?.close();clearInterval(heartbeat);await roomApply;
+  await stopRun('interrupted','老师切换了当前课堂');
+  if(state.graph&&persist)await persistNow({kind:archive?'archive':'draft'});
+  await flushQueue();
+  while(state.syncing)await new Promise(resolve=>setTimeout(resolve,50));
+  clearInterval(leaseTimer);channel?.close();
+  if(state.learner)try{const key=`supermarket-tab:${state.learner.id}`,lease=JSON.parse(localStorage.getItem(key)||'null');if(lease?.id===identityToken)localStorage.removeItem(key);}catch{}
+}
+let classSync=null;
+function syncCurrentClass(){
+  if(classSync)return classSync;
+  if(!navigator.onLine||state.joining||!deviceToken||!state.graph)return Promise.resolve();
+  classSync=(async()=>{
+    let switching=false;
+    try{
+      const {session}=await api('/api/student/current');
+      if(!session){state.classUnavailable=!!state.learner&&state.session?.phase!=='ended';return;}
+      if(session.id===state.session?.id&&!state.authExpired&&linkedSessionId===session.id){state.classUnavailable=false;return;}
+      const changed=session.id!==state.session?.id;
+      switching=true;await prepareClassSwitch({archive:changed,persist:changed});
+      const joined=await api('/api/student/auto-join',{method:'POST',body:{deviceToken}});
+      if(!joined.learner){state.classUnavailable=!!state.learner;return;}
+      await enterClass(joined);
+      linkedSessionId=joined.session.id;
+      history.replaceState(null,'','/');
+      toast(`已领取工牌 ${learnerCode()}，请按老师的安排开始。`);
+    }catch(error){
+      if(error.status===401||error.status===403)state.authExpired=true;
+      if(switching&&state.session&&!state.authExpired)connectStream();
+    }finally{
+      state.joining=false;state.checkingClass=false;renderConnection();renderNotice();updateControls();classSync=null;
+    }
+  })();
+  return classSync;
+}
 $('#practiceButton').onclick=()=>{safeSet('hasEntered',true);$('#welcome').close();};
-$('#joinOpenButton').onclick=e=>{e.preventDefault();openJoin();};
-$('#accountButton').onclick=async()=>{if(!state.learner||state.authExpired){if(state.session)$('#classCode').value=state.session.code;openJoin();return;}await persistNow({kind:'archive'});await stopRun();state.stream?.close();clearInterval(heartbeat);clearInterval(leaseTimer);try{await api('/api/logout',{method:'POST'});}catch{}try{localStorage.removeItem(`supermarket-tab:${state.learner.id}`);}catch{}await db.remove('participant');state.session=null;state.learner=null;state.queue=[];state.tabBlocked=false;state.runs=(await db.all('run:practice:')).map(x=>x.value);state.graph=null;await changeChapter(1,'drink-swap',{transition:false});renderConnection();toast('已离开课堂，本机作品仍保留');};
+$('#joinOpenButton').onclick=async e=>{e.preventDefault();safeSet('hasEntered',true);$('#welcome').close();await syncCurrentClass();if(!state.learner)toast('老师开课后会自动加入，先在这里等一等。');};
+$('#accountButton').onclick=async()=>{
+  if(!state.learner){await syncCurrentClass();if(!state.learner)toast('老师开课后会自动加入，无需填写信息。');return;}
+  $('#identityCode').textContent=learnerCode();$('#identityClass').textContent=state.session?.name||'超市实践课堂';$('#identityDialog').showModal();
+};
+$('#recoverButton').onclick=()=>{$('#identityDialog').close();$('#recoverError').textContent='';$('#recoverDialog').showModal();$('#recoveryCode').focus();};
+$('#recoverForm').onsubmit=async e=>{
+  e.preventDefault();if(classSync)await classSync;const button=e.target.querySelector('[type=submit]');button.disabled=true;$('#recoverError').textContent='';
+  try{await prepareClassSwitch();const data=await api('/api/student/recover',{method:'POST',body:{recoveryCode:$('#recoveryCode').value.trim(),deviceToken}});await enterClass(data);linkedSessionId=data.session.id;toast(`已找回 ${learnerCode()} 的作品。`);}
+  catch(error){$('#recoverError').textContent=error.message;if(state.session&&!state.authExpired)connectStream();}
+  finally{button.disabled=false;state.joining=false;renderConnection();renderNotice();updateControls();}
+};
 $$('.dialog-close').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('#submitButton').onclick=()=>{if(!editable())return;$('#submitPrompt').textContent=state.chapter===4?'你为什么这样安排配送顺序和拐点？怎样保护冷藏商品，又能多得金币？':'你先做什么，再做什么？哪些步骤的先后很重要？';const same=state.runs.filter(r=>r.chapterId===state.chapter&&fingerprint(r.graph)===fingerprint(state.graph)).at(-1);$('#submitHint').textContent=same?.valid?(isDelivery()?(same.metrics?.failed?'这轮程序已执行完，有订单超时；也可以提交改进想法。':'这轮配送程序已成功送达六单。'):'这份流程图已成功完成任务。'):(isDelivery()?'这份配送程序还没有完整运行记录，也可以先提交想法。':'这份流程图还没有成功完成的运行记录，也可以先提交你的想法。');$('#submitDialog').showModal();};
 $('#submitForm').onsubmit=async e=>{e.preventDefault();if(!editable()){$('#submitDialog').close();return toast('老师尚未开放操作，请等待。');}const graph=snapshot(),run=state.runs.filter(r=>r.chapterId===state.chapter&&fingerprint(r.graph)===fingerprint(graph)).at(-1),submission={submissionId:uid(),explanation:$('#explanation').value.trim(),source:'student',...(run?{runId:run.id}:{})};await safeSet(`submission:${scope()}:${submission.submissionId}`,{...submission,graph,chapterId:state.chapter,createdAt:Date.now()});state.submittedFingerprint=fingerprint(graph);await safeSet(`submitted:${graphKey()}`,state.submittedFingerprint);await persistNow({kind:'submission',submission});$('#submitDialog').close();$('#explanation').value='';toast(state.learner?'作品已保存，将同步给老师':'作品已保存在此设备');$('#saveStatus').textContent=state.learner?'已提交 · 同步中':'作品已提交到本机记录';};
@@ -667,15 +734,16 @@ $('#historyList').onclick=async e=>{
   if(e.target.dataset.draft){const value=await db.get(e.target.dataset.draft);viewGraph(value.graph,'当前保存的草稿');}
   if(e.target.dataset.restore){const r=state.runs.find(r=>r.id===e.target.dataset.restore);if(!r||state.running)return;if(!TASKS.some(t=>t.chapterId===r.chapterId&&t.id===r.taskId))return toast('旧版任务作品保留在记录中，可查看和下载。');if(state.session&&(r.chapterId!==state.chapter||!allowed()))return toast('只能恢复老师当前开放章节的草稿');if(r.chapterId!==state.chapter||r.taskId!==state.taskId)await changeChapter(r.chapterId,r.taskId);if(beforeEdit()){state.graph=currentDeliveryDraft(copy(r.graph));state.selected=null;changed();$('#historyDialog').close();toast('已恢复为新草稿，请重新运行并提交');}}
 };
-window.addEventListener('online',async()=>{state.online=true;renderConnection();try{await alignRoom();flushQueue();}catch{}});
+window.addEventListener('online',async()=>{state.online=true;renderConnection();try{await syncCurrentClass();await alignRoom();flushQueue();}catch{}});
 window.addEventListener('offline',()=>{state.online=false;renderConnection();renderNotice();$('#saveStatus').textContent='离线 · 已保存在此设备';});
 window.addEventListener('beforeunload',()=>{try{const key=`supermarket-tab:${state.learner?.id}`,lease=JSON.parse(localStorage.getItem(key)||'null');if(lease?.id===identityToken)localStorage.removeItem(key);}catch{}if(state.graph)safeSet(graphKey(),{graph:snapshot(),updatedAt:Date.now()});});
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&state.graph){persistNow();if(state.running)safeSet(`run:${scope()}:${state.running.id}`,state.running);}else if(state.session)alignRoom().then(flushQueue).catch(()=>{});});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&state.graph){persistNow();if(state.running)safeSet(`run:${scope()}:${state.running.id}`,state.running);}else syncCurrentClass().then(()=>alignRoom()).then(flushQueue).catch(()=>{});});
 async function bootstrap(){
+  deviceToken=await getDeviceToken();
   let participant=await db.get('participant').catch(()=>null),me=null;try{me=await api('/api/me');}catch{}
   if(me?.role==='student')participant=me;
   else if(me&&participant?.learner){state.authExpired=true;state.online=false;}
-  if(participant?.learner){
+  if(participant?.learner&&participant.session){
     state.learner=participant.learner;state.session=participant.session;state.assignment=participant.assignment;state.queue=await db.get(`queue:${scope()}`,[]);
     if(state.online)try{await hydrateWorks(await api('/api/student/works'));}catch{}else{state.runs=(await db.all(`run:${scope()}:`)).map(x=>x.value);state.feedback=await db.get(`feedback:${scope()}`,[]);}
     let room;try{room=await api(`/api/sessions/${state.session.id}/state`);}catch{}
@@ -683,12 +751,13 @@ async function bootstrap(){
     await changeChapter(ch,t,{transition:false});if(room)await acceptRoom(room);if(!state.authExpired){startTabLease();connectStream();}
   }else{
     state.runs=(await db.all('run:practice:')).map(x=>x.value);const last=await db.get('last:practice');await changeChapter(last?.chapter||1,last?.taskId||'drink-swap',{transition:false});
-    if(!await db.get('hasEntered'))$('#welcome').showModal();
   }
   // A page closed in mid-run keeps an interrupted record, never a completion.
   for(const r of state.runs.filter(r=>r.status==='running')){r.status='interrupted';r.valid=false;r.reason='页面关闭前尚未执行完毕';r.result={trace:simulate(r.graph).trace.slice(0,r.executedNodes.length),message:r.reason};await storeRun(r);}
-  const params=new URL(location.href).searchParams,code=params.get('class')||params.get('code');if(code&&!state.learner){$('#classCode').value=code;openJoin();}
-  renderConnection();flushQueue();
+  await syncCurrentClass();state.checkingClass=false;
+  if(!state.learner&&!await db.get('hasEntered'))$('#welcome').showModal();
+  clearInterval(classTimer);classTimer=setInterval(()=>syncCurrentClass(),4000);
+  renderConnection();renderNotice();updateControls();flushQueue();
   if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 }
 bootstrap().catch(error=>{console.error(error);storageError(error);if(!state.graph){state.graph=cleanGraph();chain();renderChapter();}});
