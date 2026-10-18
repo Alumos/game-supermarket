@@ -1,4 +1,4 @@
-import { initialState, DELIVERY_MAP } from '../shared/engine.mjs';
+import { initialState, DELIVERY_MAP, TASKS, actionLabel } from '../shared/engine.mjs';
 
 // One source pixel is kept visible at every scale. All art is drawn locally;
 // classroom play needs no image host, font download, or rendering framework.
@@ -165,7 +165,13 @@ export class SupermarketWorld {
   _xy(p){return this.chapterId===4?{x:32+p.x*28,y:46+(DELIVERY_MAP.coordinateMaxY-p.y)*26}:XY(p);}
   _grid(p){return this.chapterId===4?{x:Math.round((p.x-32)/28),y:DELIVERY_MAP.coordinateMaxY-Math.round((p.y-46)/26)}:GRID(p);}
   _hotpoint(h){const p=this._xy(h);if(h.npc)return {x:p.x,y:p.y-23};if(this.chapterId===4)return {x:p.x,y:p.y};return {x:p.x,y:p.y+(this.chapterId===2?11:this.chapterId===1?-29:-15)};}
-  _actionText(e){if(e.type==='delivery')return `${e.point} ${e.status==='spoiled'?'冷藏订单超时':'订单送达'} · ${e.coins>=0?'+':''}${e.coins||0}金币`;if(e.type==='take')return '拿起商品';if(e.type==='place')return '放下商品';return ({wash_orange:'清洗橙子',peel_cut:'去皮切块',add_orange:'放入橙肉',start_juicer:'启动榨汁机',pack_juice:'打包鲜橙汁',take:'拿起商品',place:'放下商品',seaweed:'铺上海苔',rice:'铺匀米饭',filling:'加入馅料',roll:'卷成饭卷',pack:'切段并装盒',cup:'取干净茶杯',water:'倒入温水',steep:'放入茶包',remove_bag:'取出茶包',lid:'盖好杯盖',soil:'准备营养土',plant:'移入小苗',fill:'填土固定',water_plant:'慢慢浇水',label_plant:'插上标签',fishfood:'取出鱼食',open_feed:'打开投喂口',feed:'少量投喂',close_feed:'关好投喂口',record_feed:'记录投喂'})[e.actionId||e.type]||'正在操作';}
+  _actionText(e){
+    if(e.type==='delivery')return `${e.point} ${e.status==='spoiled'?'冷藏订单超时':'订单送达'} · ${e.coins>=0?'+':''}${e.coins||0}金币`;
+    if(e.type==='take')return '拿起商品';
+    if(e.type==='place')return '放下商品';
+    const label=actionLabel(e.actionId||e.type);
+    return label==='未选择操作'?'正在操作':label;
+  }
   // All art primitives round to source pixels; text is rendered after pixel art.
   r(x,y,w,h,c){this.g.fillStyle=c;this.g.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h));}
   line(x,y,x2,y2,c,width=1,dash=[]){const g=this.g;g.strokeStyle=c;g.lineWidth=width;g.setLineDash(dash);g.beginPath();g.moveTo(Math.round(x)+.5,Math.round(y)+.5);g.lineTo(Math.round(x2)+.5,Math.round(y2)+.5);g.stroke();g.setLineDash([]);}
@@ -270,8 +276,13 @@ export class SupermarketWorld {
     this.r(239,319,165,37,'#c9b98b');this.r(246,322,151,27,'#e8d9b1');
     if(packed){this.r(291,297,51,51,'#f5e9c7');this.r(296,303,41,39,'#edb44c');this.r(288,294,57,8,'#46776c');this.r(310,278,5,19,'#e9d7a5');this.r(298,315,37,18,'#fff0d1');this.text('鲜橙汁',317,324,11,'#9d6f3b');this._sign('✓ 已打包',320,375,'#56897b',130);}
     else this.text('成品打包位',320,337,13,'#7c825e');
-    const steps=[['清洗',washed],['去皮切块',cut],['放入橙肉',loaded],['启动榨汁机',blended],['打包',packed]];
-    steps.forEach(([label,done],i)=>{const x=92+i*114;this.r(x-47,395,94,28,done?'#578675':'#d2ccac');this.text(`${done?'✓':i+1} ${label}`,x,409,12,done?'#fff1d0':'#6d7968');});
+    const completed=[washed,cut,loaded,blended,packed],steps=TASKS.find(task=>task.id==='fresh-juice').actions;
+    steps.forEach(({label},i)=>{
+      const x=92+i*114,done=completed[i],color=done?'#fff1d0':'#6d7968',chars=Array.from(label);
+      this.r(x-47,391,94,37,done?'#578675':'#d2ccac');this.text(done?'✓':String(i+1),x-35,409,12,color);
+      if(chars.length>4){this.text(chars.slice(0,4).join(''),x+8,402,12,color);this.text(chars.slice(4).join(''),x+8,416,12,color);}
+      else this.text(label,x+8,409,12,color);
+    });
   }
   _riceRoll(x,y,f={}){
     this.r(x-43,y-96,86,45,'#d6bf8d');for(let q=x-41;q<x+42;q+=4)this.r(q,y-93,1,38,'#b29162');
@@ -296,19 +307,20 @@ export class SupermarketWorld {
     const tea=this._xy(WORK_POINTS.tea),tf=this.taskId==='tea'?f:{};
     this.r(tea.x-45,tea.y-105,90,57,'#b7cbb0');this._kettle(tea.x-27,tea.y-62);
     this.r(tea.x+28,tea.y-103,13,34,'#ad8b58');this.r(tea.x+29,tea.y-102,11,4,'#d9bf85');
-    if(tf.cup){const cx=tea.x+5,cy=tea.y-62;this.r(cx-11,cy-27,24,25,'#fff1d6');this.r(cx-8,cy-23,18,18,tf.water?'#d6b56c':'#d8ddbd');this.r(cx+13,cy-22,6,15,'#eee4c7');if(!tf.remove_bag){this.r(cx-4,cy-19,10,10,tf.steep?'#927045':'#b79f72');this.line(cx,cy-26,cx+10,cy-32,'#efe4bd');this.r(cx+9,cy-33,7,6,'#c98b4c');}if(tf.lid){this.r(cx-13,cy-29,28,6,'#5b8978');this.r(cx-8,cy-32,18,4,'#86b39c');}else if(tf.water){for(let i=0;i<2;i++)this.r(cx-3+i*9,cy-38-((this.time*8+i*7)%12),2,5,'#eef3d4aa');}}
+    if(tf.cup){const cx=tea.x+5,cy=tea.y-62;this.r(cx-11,cy-27,24,25,'#fff1d6');this.r(cx-8,cy-23,18,18,tf.water?(tf.steep?'#bb8c4f':'#e3dfb9'):'#d8ddbd');this.r(cx+13,cy-22,6,15,'#eee4c7');if(!tf.remove_bag){this.r(cx-4,cy-19,10,10,tf.steep?'#927045':'#b79f72');this.line(cx,cy-26,cx+10,cy-32,'#efe4bd');this.r(cx+9,cy-33,7,6,'#c98b4c');}if(tf.lid){this.r(cx-13,cy-29,28,6,'#5b8978');this.r(cx-8,cy-32,18,4,'#86b39c');this.r(cx-7,cy-18,17,10,'#fff1d6');this.r(cx-4,cy-15,11,2,'#548474');this.r(cx-4,cy-11,7,1,'#9e855c');}else if(tf.water){for(let i=0;i<2;i++)this.r(cx-3+i*9,cy-38-((this.time*8+i*7)%12),2,5,'#eef3d4aa');}}
     const plant=this._xy(WORK_POINTS.plant),pf=this.taskId==='plant'?f:{};
     this.r(plant.x-45,plant.y-105,90,57,'#d1d0aa');this._package(plant.x-41,plant.y-99,19,27,'#8f9968');this.text('土',plant.x-31,plant.y-87,11,'#fff2cf');this._watering(plant.x+30,plant.y-62);
     this.r(plant.x-12,plant.y-75,28,23,'#ba8760');this.r(plant.x-15,plant.y-79,34,6,'#d6a16c');this.r(plant.x-9,plant.y-75,22,3,pf.soil||pf.fill?'#795b3c':'#6b7d64');
-    if(pf.plant)this._leaves(plant.x+2,plant.y-78,.8);else this._plant(plant.x+29,plant.y-98,.4);
+    if(pf.plant){this.r(plant.x-6,plant.y-82,16,9,'#79593b');this.line(plant.x-3,plant.y-79,plant.x+6,plant.y-75,'#c1a375');this.line(plant.x+5,plant.y-80,plant.x+1,plant.y-74,'#c1a375');this._leaves(plant.x+2,plant.y-78,.8);}else this._plant(plant.x+29,plant.y-98,.4);
     if(pf.fill){this.r(plant.x-8,plant.y-77,6,2,'#5c4d34');this.r(plant.x+7,plant.y-77,6,2,'#8c6c43');}
     if(pf.water_plant){this.r(plant.x-7,plant.y-76,20,2,'#67553b');this.r(plant.x+13,plant.y-100,2,5,'#7ab5c0');this.r(plant.x-11,plant.y-95,2,3,'#7ab5c0');}
     if(pf.label_plant){this.r(plant.x+13,plant.y-104,2,29,'#90754f');this.r(plant.x+8,plant.y-109,23,12,'#fff0c8');this.r(plant.x+11,plant.y-105,15,2,'#87a06e');}
     const fish=this._xy(WORK_POINTS.fish),ff=this.taskId==='fish'?f:{};
-    this._tank(fish.x-43,fish.y-111,86,62,ff.feed);this.r(fish.x-45,fish.y-116,90,6,'#315c5a');
-    if(ff.open_feed&&!ff.close_feed)this.poly([[fish.x-4,fish.y-118],[fish.x+22,fish.y-118],[fish.x+17,fish.y-128],[fish.x-8,fish.y-128]],'#4a7b71');
-    if(ff.fishfood){this._package(fish.x+29,fish.y-73,14,19,'#d6aa62');this.r(fish.x+29,fish.y-75,14,4,'#be7956');}
-    if(ff.feed)for(let i=0;i<8;i++)this.r(fish.x-19+i*6,fish.y-100+(i*7+Math.floor(this.time*6))%32,2,2,'#e9c377');
+    this._tank(fish.x-43,fish.y-111,86,62,ff.feed);
+    if(ff.open_feed&&!ff.close_feed){this.r(fish.x-45,fish.y-116,41,6,'#315c5a');this.r(fish.x+22,fish.y-116,23,6,'#315c5a');this.poly([[fish.x-4,fish.y-118],[fish.x+22,fish.y-118],[fish.x+17,fish.y-128],[fish.x-8,fish.y-128]],'#4a7b71');}
+    else this.r(fish.x-45,fish.y-116,90,6,'#315c5a');
+    if(ff.fishfood){this.r(fish.x+23,fish.y-72,19,5,'#e9dcc0');this.r(fish.x+25,fish.y-67,15,5,'#b89363');if(!ff.feed)for(let i=0;i<5;i++)this.r(fish.x+26+i*3,fish.y-75+(i%2)*2,2,2,'#d1a555');}
+    if(ff.feed)for(let i=0;i<6;i++)this.r(fish.x+2+(i*3)%13,fish.y-106+(i*5+Math.floor(this.time*6))%25,2,2,'#e9c377');
     if(ff.record_feed){this.r(fish.x+12,fish.y-47,26,18,'#f2e4bd');this.r(fish.x+15,fish.y-42,17,1,'#86a27b');this.r(fish.x+15,fish.y-37,13,1,'#86a27b');this.text('✓',fish.x+32,fish.y-34,11,P.teal);}
     this._sign('点工作台选择任务 · 每个区的流程图分别保存',335,375,'#4a776b',370);
   }
