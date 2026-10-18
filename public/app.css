@@ -200,3 +200,23 @@ body{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 .practice-tasks button:not(:disabled):hover{border-color:#477c9d;background:#d8eafa}
 .practice-tasks button[aria-pressed=true]:not(:disabled):hover{background:#f5d487;border-color:#b98a36}
 .practice-tasks button:focus-visible{outline:3px solid #bb872e;outline-offset:2px}
+
+/* A deliberate three-star self-assessment, with large touch targets. */
+#submitDialog{width:min(480px,92vw)}
+#submitDialog h2{font-size:25px;margin:13px 0 18px}
+#submitDialog .rating-goal{padding:13px 16px;margin:0 0 20px;border:1px solid #d8dfc9;border-radius:9px;background:#f2f5e8;font-size:16px;font-weight:650;color:#345942;line-height:1.7}
+.self-rating{border:0;padding:0;margin:0;min-width:0}
+.self-rating legend{font-size:14px;color:#6b7e62;margin-bottom:11px}
+.rating-options{display:flex;gap:10px}
+.rating-options label{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:7px;margin:0;padding:12px 5px 11px;border:2px solid #d5ddc9;border-radius:11px;background:#f9faef;cursor:pointer}
+.rating-options input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.rating-options .rating-star{font-family:system-ui,sans-serif;font-size:47px;line-height:1;color:#a7b19a;pointer-events:none}
+.rating-options .rating-level{font-size:12px;color:#7a876d;pointer-events:none;white-space:nowrap}
+.rating-options label.is-lit{background:#fff5d5;border-color:#e3cb86}
+.rating-options label.is-lit .rating-star{color:#c08b22}
+.rating-options label.is-selected{border-color:#b78729;box-shadow:0 0 0 2px #e6ce915c}
+.rating-options label.is-selected .rating-level{color:#78521f;font-weight:700}
+.rating-options label:has(input:focus-visible){outline:3px solid #608978;outline-offset:3px}
+#submitDialog .rating-status{font-size:12px;min-height:23px;margin:16px 0 6px}
+.history-rating{color:#a77b22;font-size:23px;letter-spacing:3px}.history-rating b{font-size:13px;letter-spacing:0}
+@media(max-width:480px){#submitDialog{padding:26px 22px}#submitDialog h2{font-size:23px}.rating-options{gap:7px}.rating-options .rating-star{font-size:41px}}

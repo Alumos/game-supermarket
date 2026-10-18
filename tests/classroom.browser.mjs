@@ -56,8 +56,8 @@ try{
  await teacher.locator('#resume').click();await poll(()=>student.locator('#pauseButton').isEnabled(),{label:'teacher resume'});
  const first=await poll(async()=>{const d=await works();return d.runs.find(r=>r.learnerId===learnerId&&r.valid);},{timeout:60000,label:'full real animation yields server validated completion'});
  assert.equal(first.status,'completed');assert.equal(first.graph.nodes.length,5);assert.equal(first.executedNodes.length,5);checks.push('actual DOM flow executes; teacher pause/resume; authoritative full run persists');
- // Submission is also sent through the actual student explanation dialog.
- await student.locator('#submitButton').click();await student.locator('#explanation').fill('我先借助空柜C腾出位置，再交换两箱饮料。');await student.locator('#submitForm [type=submit]').click();await student.locator('#submitDialog').waitFor({state:'hidden'});
+ // Submission is sent through the actual chapter learning-goal star dialog.
+ await student.locator('#submitButton').click();await student.locator('#selfRatingGroup label:has(input[name=selfStars][value="2"])').click();await student.locator('#submitForm [type=submit]').click();await student.locator('#submitDialog').waitFor({state:'hidden'});
  await poll(async()=>{const d=await works();return d.submissions.find(s=>s.source==='student'&&s.learnerId===learnerId);},{label:'student submission upload'});
  // The teacher receives the live work without reloading, then can inspect map and graph.
  await poll(async()=>await teacher.locator('#learners tr').first().textContent().then(t=>t.includes('已完成')&&t.includes('已主动提交')),{label:'live teacher works update'});
@@ -65,7 +65,7 @@ try{
  // Starting another attempt and moving the classroom archives an interrupted prefix.
  await student.locator('#runButton').click();await poll(()=>student.locator('#stopButton').isEnabled(),{label:'second attempt'});await teacher.locator('#next').click();await student.locator('#sceneTitle').filter({hasText:'水果'}).waitFor();
  await poll(async()=>{const d=await works();return d.runs.find(r=>r.learnerId===learnerId&&r.status==='interrupted');},{label:'chapter interruption archival'});
- let d=await works();assert.equal(d.runs.filter(r=>r.valid).length,1);assert.ok(d.submissions.some(s=>s.source==='chapter'));assert.equal(await student.locator('#runButton').isDisabled(),true);checks.push('next chapter interrupts safely; no false success; previous works survive');
+ let d=await works();assert.equal(d.runs.filter(r=>r.valid).length,1);assert.ok(d.submissions.some(s=>s.source==='chapter'));assert.ok(d.submissions.filter(s=>s.source==='chapter').every(s=>!s.selfAssessment));assert.equal(await student.locator('#runButton').isDisabled(),true);checks.push('next chapter interrupts safely; no false success; previous works survive');
  // Chapter 2 is the fruit station; chapter 3 offers four independent tasks.
  const chapter2=await json(studentContext,`/api/sessions/${session.id}/state`);assert.equal(chapter2.assignment.taskId,'fresh-juice');
  await teacher.locator('#practice').click();await poll(()=>student.locator('#runButton').isEnabled(),{label:'chapter 2 practice'});await teacher.locator('#next').click();await student.locator('#sceneTitle').filter({hasText:'实践'}).waitFor();await student.locator('#practiceTasks').waitFor();assert.equal(await student.locator('#practiceTasks [data-practice-task]').count(),4);assert.equal(await student.locator('#practiceTasks button:enabled').count(),0);

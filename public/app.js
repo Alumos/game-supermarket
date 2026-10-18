@@ -1,4 +1,4 @@
-import {CHAPTERS,TASKS,DELIVERY_MAP,DELIVERY_RULES_VERSION,deliveryRulesVersion,initialState,availableActions,validateGraph,simulate,exampleGraph,actionLabel,deliveryPointId,normalizeDeliveryGraph,normalizeDeliveryResult} from '/shared/engine.mjs';
+import {CHAPTERS,TASKS,LEARNING_GOALS,DELIVERY_MAP,DELIVERY_RULES_VERSION,deliveryRulesVersion,initialState,availableActions,validateGraph,simulate,exampleGraph,actionLabel,deliveryPointId,normalizeDeliveryGraph,normalizeDeliveryResult} from '/shared/engine.mjs';
 import {SupermarketWorld} from './world.js';
 import * as db from './db.js';
 import {dragFootprint,dropZone,insertionAt,movedInsertionIndex} from './drag-drop.mjs';
@@ -745,8 +745,40 @@ $('#recoverForm').onsubmit=async e=>{
   finally{button.disabled=false;state.joining=false;renderConnection();renderNotice();updateControls();}
 };
 $$('.dialog-close').forEach(b=>b.onclick=()=>b.closest('dialog').close());
-$('#submitButton').onclick=()=>{if(!editable())return;$('#submitPrompt').textContent=state.chapter===4?'你为什么这样安排配送顺序和拐点？怎样保护冷藏商品，又能多得金币？':'你先做什么，再做什么？哪些步骤的先后很重要？';const same=state.runs.filter(r=>r.chapterId===state.chapter&&fingerprint(r.graph)===fingerprint(state.graph)).at(-1);$('#submitHint').textContent=same?.valid?(isDelivery()?(same.metrics?.failed?'这轮程序已执行完，有订单超时；也可以提交改进想法。':'这轮配送程序已成功送达六单。'):'这份流程图已成功完成任务。'):(isDelivery()?'这份配送程序还没有完整运行记录，也可以先提交想法。':'这份流程图还没有成功完成的运行记录，也可以先提交你的想法。');$('#submitDialog').showModal();};
-$('#submitForm').onsubmit=async e=>{e.preventDefault();if(!editable()){$('#submitDialog').close();return toast('老师尚未开放操作，请等待。');}const graph=snapshot(),run=state.runs.filter(r=>r.chapterId===state.chapter&&fingerprint(r.graph)===fingerprint(graph)).at(-1),submission={submissionId:uid(),explanation:$('#explanation').value.trim(),source:'student',...(run?{runId:run.id}:{})};await safeSet(`submission:${scope()}:${submission.submissionId}`,{...submission,graph,chapterId:state.chapter,createdAt:Date.now()});state.submittedFingerprint=fingerprint(graph);await safeSet(`submitted:${graphKey()}`,state.submittedFingerprint);await persistNow({kind:'submission',submission});$('#submitDialog').close();$('#explanation').value='';toast(state.learner?'作品已保存，将同步给老师':'作品已保存在此设备');$('#saveStatus').textContent=state.learner?'已提交 · 同步中':'作品已提交到本机记录';};
+let submittingAssessment=false;
+function renderSelfRating(){
+  const stars=Number($('#selfRatingGroup input:checked')?.value)||0;
+  $$('#selfRatingGroup label').forEach(label=>{
+    const value=Number(label.querySelector('input').value),lit=value<=stars;
+    label.classList.toggle('is-lit',lit);label.classList.toggle('is-selected',value===stars);
+    label.querySelector('.rating-star').textContent=lit?'★':'☆';
+  });
+  $('#submitForm [type=submit]').disabled=submittingAssessment||!stars;
+  $('#selfRatingStatus').textContent=stars?`我的自评：${stars} / 3 星 · ${['','还需练习','基本掌握','熟练掌握'][stars]}`:'点亮星星，选出符合自己的学习状况。';
+}
+$('#selfRatingGroup').addEventListener('change',renderSelfRating);
+$('#submitButton').onclick=()=>{
+  if(!editable()||submittingAssessment)return;
+  $('#submitForm').reset();
+  $('#submitRatingGoal').textContent=`任务 ${state.chapter} · ${LEARNING_GOALS[state.chapter]}`;
+  renderSelfRating();$('#submitDialog').showModal();
+};
+$('#submitForm').onsubmit=async e=>{
+  e.preventDefault();
+  if(submittingAssessment)return;
+  if(!editable()){$('#submitDialog').close();return toast('老师尚未开放操作，请等待。');}
+  const stars=Number($('#selfRatingGroup input:checked')?.value);
+  if(![1,2,3].includes(stars))return;
+  submittingAssessment=true;renderSelfRating();
+  try{
+    const graph=snapshot(),run=state.runs.filter(r=>r.chapterId===state.chapter&&fingerprint(r.graph)===fingerprint(graph)).at(-1),submission={submissionId:uid(),selfAssessment:{goalId:state.chapter,stars},source:'student',...(run?{runId:run.id}:{})};
+    await safeSet(`submission:${scope()}:${submission.submissionId}`,{...submission,graph,chapterId:state.chapter,taskId:state.taskId,createdAt:Date.now()});
+    state.submittedFingerprint=fingerprint(graph);await safeSet(`submitted:${graphKey()}`,state.submittedFingerprint);
+    await persistNow({kind:'submission',submission});$('#submitDialog').close();
+    toast(state.learner?'作品和自评已保存，将同步给老师':'作品和自评已保存在此设备');
+    $('#saveStatus').textContent=state.learner?'已提交自评 · 同步中':'作品和自评已保存';
+  }finally{submittingAssessment=false;renderSelfRating();}
+};
 $('#historyButton').onclick=async()=>{if(state.learner&&state.online)try{await hydrateWorks(await api('/api/student/works'));}catch{}await showHistory();$('#historyDialog').showModal();};
 $('#historyTopButton').onclick=()=>$('#historyButton').click();
 async function showHistory(){
@@ -754,7 +786,11 @@ async function showHistory(){
   const drafts=await db.all(`draft:${scope()}:`),submissions=await db.all(`submission:${scope()}:`);
   content='<button class="secondary" id="exportLocal">下载我的作品备份</button><h3>运行记录</h3>'+content;
   content+='<h3>各站草稿</h3>'+drafts.map(({key,value})=>`<article class="history-item"><strong>第${value.graph.chapterId}站 · ${esc(TASKS.find(t=>t.id===value.graph.taskId)?.name||value.graph.taskId)}</strong><button class="quiet" data-draft="${esc(key)}">查看当前草稿</button></article>`).join('');
-  if(submissions.length)content+='<h3>提交与想法</h3>'+submissions.sort((a,b)=>b.value.createdAt-a.value.createdAt).map(({value:s})=>`<article class="history-item"><strong>第${s.chapterId}站 · ${s.source==='chapter'?'切章保留':'主动提交'}</strong><p>${esc(s.explanation||'未填写文字说明')}${s.synced?' · 已同步':''}</p></article>`).join('');
+  if(submissions.length)content+='<h3>提交与学习自评</h3>'+submissions.sort((a,b)=>b.value.createdAt-a.value.createdAt).map(({value:s})=>{
+    const assessment=s.source==='student'&&s.selfAssessment?.goalId===s.chapterId&&[1,2,3].includes(s.selfAssessment.stars)?s.selfAssessment:null;
+    const taskName=TASKS.find(t=>t.id===(s.taskId||s.graph?.taskId))?.name;
+    return `<article class="history-item"><strong>第${s.chapterId}站${taskName?' · '+esc(taskName):''} · ${s.source==='chapter'?'切章保留':'主动提交'}</strong>${assessment?`<p>${esc(LEARNING_GOALS[s.chapterId])}</p><p class="history-rating" aria-label="自评${assessment.stars}颗星，满分3颗">${'★'.repeat(assessment.stars)}${'☆'.repeat(3-assessment.stars)} <b>${assessment.stars} / 3 星</b></p>`:''}${s.explanation?`<p>原文字记录：${esc(s.explanation)}</p>`:''}<p>${new Date(s.createdAt||0).toLocaleString('zh-CN')}${s.synced?' · 已同步':state.learner?' · 等待同步':' · 本机记录'}</p></article>`;
+  }).join('');
   content+=backups.map(({key,value})=>`<article class="history-item"><strong>保留的本机副本</strong><button class="secondary" data-backup="${esc(key)}">查看流程图</button></article>`).join('');
   content+=state.feedback.map(f=>`<div class="feedback">老师对第${f.chapterId}站的反馈：${esc(f.text)}</div>`).join('');$('#historyList').innerHTML=content;
   $('#exportLocal').onclick=async()=>{const records=(await db.all()).filter(({key})=>key.includes(`:${scope()}:`)||key===`feedback:${scope()}`);const blob=new Blob([JSON.stringify({app:'ordered-supermarket',exportedAt:new Date().toISOString(),learner:state.learner,records},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='我的超市实践作品.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);};

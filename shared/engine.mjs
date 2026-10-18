@@ -7,6 +7,12 @@ const freeze = value => {
   }
   return value;
 };
+export const LEARNING_GOALS = freeze({
+  1:'了解顺序结构的特点',
+  2:'学会将操作步骤转换成流程图',
+  3:'学会用算法思维解决问题',
+  4:'了解算法优化'
+});
 export const CHAPTERS = freeze([
   {id:1,title:'饮料区换柜',subtitle:'先腾出一个位置',story:'饮料柜员请你把橙汁与牛奶交换位置。周转位C是空的，一次只能搬一箱。',outro:'位置换好了！如果饮料种类更多，怎样安排能少搬几次呢？'},
   {id:2,title:'水果区鲜榨橙汁',subtitle:'让每一步准备好下一步',story:'水果区师傅请你制作一杯鲜榨橙汁。先处理橙子，放入橙肉，再启动榨汁机。',outro:'橙汁做好了！清楚的顺序能让机器正确工作。接下来，去其他岗位试试吧。'},

@@ -305,3 +305,67 @@ test('third chapter tasks are freely selected, persist, and retain independent c
  const persisted=await call('/api/student/auto-join',{method:'POST',body:{deviceToken}});assert.equal(persisted.learner.id,learnerId);assert.equal(persisted.learner.taskId,'fish');assert.equal(persisted.learner.taskVersion,taskVersion);
  const retained=await call('/api/student/works',{cookie:persisted.cookie});assert.equal(retained.drafts.length,4);assert.equal(retained.runs.length,5);
 });
+
+test('learning goal self assessments are validated, task specific, durable and preserved across archives and exports',async t=>{
+ const h=await autoJoinHarness(t),{call}=h;
+ const teacher=await call('/api/teacher/login',{method:'POST',body:{key:'auto-test'}});
+ let {session}=await call('/api/sessions',{cookie:teacher.cookie,method:'POST',body:{name:'学习目标自评'},status:201});
+ const student=await call('/api/student/join',{method:'POST',body:{code:session.code,seat:'1',name:'自评小组'}}),learnerId=student.learner.id;
+ const command=async(action,extra={})=>{session=(await call(`/api/sessions/${session.id}/commands`,{cookie:teacher.cookie,method:'POST',body:{action,commandId:`rating-${session.version}`,expectedVersion:session.version,...extra}})).session;};
+ const post=async(body,status=200)=>call('/api/student/submissions',{cookie:student.cookie,method:'POST',body,status});
+ const expected=[];
+ for(const chapterId of [1,2,3,4]){
+  if(chapterId!==1)await command('chapter',{chapterId});
+  await command('practice');
+  const tasks=chapterId===3?['rice-roll','tea','plant','fish']:[{1:'drink-swap',2:'fresh-juice',4:'delivery'}[chapterId]];
+  for(const [index,taskId] of tasks.entries()){
+   if(chapterId===3)await call('/api/student/task',{cookie:student.cookie,method:'POST',body:{taskId}});
+   const graph=exampleGraph(chapterId,taskId,'best'),draftId=`${learnerId}-${chapterId}-${taskId}`;
+   await call(`/api/student/drafts/${draftId}`,{cookie:student.cookie,method:'PUT',body:{graph,baseRevision:0,mutationId:`save-${draftId}`}});
+   const payload={draftId,revision:1,submissionId:`rated-${chapterId}-${taskId}`},stars=chapterId===3?index%3+1:chapterId===4?1:4-chapterId;
+   if(chapterId===1){
+    for(const [i,selfAssessment] of [null,[],{},1,{goalId:2,stars:2},{goalId:'1',stars:2},{goalId:1,stars:0},{goalId:1,stars:4},{goalId:1,stars:1.5},{goalId:1,stars:'2'},{goalId:1,stars:true}].entries())await post({...payload,submissionId:`invalid-${i}`,selfAssessment},400);
+    await post({...payload,submissionId:'earlier-rating',selfAssessment:{goalId:1,stars:1}});
+   }
+   const {submission}=await post({...payload,selfAssessment:{goalId:chapterId,stars,ignored:'not canonical'}});
+   assert.deepEqual(submission.selfAssessment,{goalId:chapterId,stars});assert.equal(submission.source,'student');
+   const duplicate=await post({...payload,selfAssessment:{goalId:chapterId,stars:stars===3?1:3}});
+   assert.deepEqual(duplicate.submission,submission);
+   await post({...payload,selfAssessment:{goalId:chapterId,stars:0}},400);
+   expected.push({chapterId,taskId,stars,id:submission.id});
+   // Old clients and offline queues remain readable without erasing the last rating.
+   const legacy=await post({...payload,submissionId:`legacy-${chapterId}-${taskId}`,explanation:`旧版想法 ${taskId}`});
+   assert.equal(legacy.submission.selfAssessment,undefined);
+   const archive=await post({...payload,submissionId:`client-archive-${chapterId}-${taskId}`,source:'chapter',selfAssessment:{goalId:chapterId,stars:stars===3?1:3}});
+   assert.equal(archive.submission.selfAssessment,undefined);assert.equal(archive.submission.source,'chapter');
+  }
+ }
+ await command('end');
+ const before=await call(`/api/sessions/${session.id}/works`,{cookie:teacher.cookie});
+ assert.equal(before.submissions.filter(s=>s.selfAssessment).length,8); // seven task sections plus the earlier chapter-one rating
+ assert.equal(before.submissions.some(s=>s.id.startsWith('invalid-')),false);
+ const archives=before.submissions.filter(s=>s.source==='chapter');assert.ok(archives.some(s=>s.id.startsWith('archive-')));assert.ok(archives.every(s=>!Object.hasOwn(s,'selfAssessment')));
+ await h.restart();
+ const works=await call(`/api/sessions/${session.id}/works`,{cookie:teacher.cookie});
+ assert.deepEqual(works.submissions,before.submissions);
+ const json=await call(`/api/sessions/${session.id}/export?format=json`,{cookie:teacher.cookie});
+ for(const entry of expected){const submission=json.submissions.find(s=>s.id===entry.id);assert.deepEqual(submission.selfAssessment,{goalId:entry.chapterId,stars:entry.stars});}
+ const readExport=async format=>{
+  const response=await fetch(`http://127.0.0.1:${h.app.server.address().port}/api/sessions/${session.id}/export?format=${format}`,{headers:{cookie:teacher.cookie}});
+  assert.equal(response.status,200);return response.text();
+ };
+ const csv=await readExport('csv'),rows=csv.trim().split('\r\n').map(line=>line.replace(/^\uFEFF/,'').slice(1,-1).split('","'));
+ assert.deepEqual(rows[0].slice(-3),['学习目标','最新自评星数','满分']);
+ const goals={1:'了解顺序结构的特点',2:'学会将操作步骤转换成流程图',3:'学会用算法思维解决问题',4:'了解算法优化'};
+ assert.equal(rows.length,8);
+ for(const entry of expected){
+  const row=rows.slice(1).find(r=>Number(r[3])===entry.chapterId&&(entry.chapterId!==3||r[2]===entry.taskId));
+  assert.ok(row,entry.taskId);assert.deepEqual(row.slice(-3),[goals[entry.chapterId],String(entry.stars),'3']);
+ }
+ const html=await readExport('html');
+ for(const entry of expected){
+  const article=html.match(/<article>[\s\S]*?<\/article>/g).find(section=>section.includes(`第${entry.chapterId}章 ·`)&&section.includes(` · ${entry.taskId}</h3>`));
+  assert.ok(article,entry.taskId);assert.ok(article.includes(`最新自评：${entry.stars} / 3星`));assert.ok(article.includes(goals[entry.chapterId]));assert.ok(article.includes(`旧版想法 ${entry.taskId}`));
+ }
+ assert.match(html,/自评记录：了解顺序结构的特点 · 1 \/ 3星/);
+});
