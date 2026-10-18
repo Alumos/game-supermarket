@@ -76,7 +76,7 @@
 .control-heading h2{font-size:17px;margin:0 0 3px}.control-heading p{font-size:11px;line-height:1.4;color:var(--muted)}
 .control-content{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;scrollbar-width:thin;overscroll-behavior:contain}
 .control-panel .palette{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;padding:8px 10px;border-top:0;overflow:auto}.control-panel .palette:not([open]){flex:0 0 auto}.control-panel .palette::details-content{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}.delivery-mode .control-panel .palette{flex:0 0 auto}.delivery-mode .control-panel:has(.inspector:not([hidden])) .palette{padding-top:4px;padding-bottom:4px}.control-panel .palette summary{font-size:12px;min-height:32px;flex-shrink:0}.control-panel .palette summary span{display:none}
-.control-panel .palette>div{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;max-height:none;padding:6px 2px 4px;gap:7px;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
+.control-panel .palette>div{display:flex;flex-flow:column nowrap;flex:1 1 auto;min-width:0;min-height:0;max-height:none;padding:6px 2px 4px;gap:7px;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
 .control-panel .action-card{width:100%;white-space:normal;text-align:left;padding:8px;line-height:1.4;touch-action:none;min-height:40px;flex-shrink:0}
 .control-panel .inspector{flex:0 0 auto;border:0;border-bottom:1px solid #cfdcc5;margin:0;padding:8px 10px;max-height:none;overflow:visible}
 .control-panel .inspector-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}.control-panel .inspector input[type=text]{min-width:0;flex-basis:100%;min-height:40px;font-size:12px;padding:7px}.control-panel .inspector select{min-width:0;max-width:100%;font-size:12px;min-height:40px;padding:6px}.control-panel .move-buttons{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:5px}.control-panel .move-buttons button{min-height:36px;font-size:11px;padding:5px}
@@ -191,6 +191,21 @@ body{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 .topbar,.class-notice{flex-shrink:0}
 .workspace,.class-notice:not([hidden])+.workspace{flex:1 1 0;height:auto;min-height:0;width:100%;margin:0 auto}
 .toast{bottom:calc(var(--site-footer-height) + 12px)}
+
+/* Keep teacher demonstration beside the brand at every header size. */
+.brand-group{display:flex;align-items:center;gap:8px;flex:0 0 auto;min-width:0}
+.brand-group .brand{flex:0 0 auto}
+.teacher-demo-entry{min-height:36px;padding:6px 8px;background:#edf2e5;color:#47634b;border:1px solid #c9d6bc;font-size:11px;white-space:nowrap}
+.teacher-demo-mode .teacher-demo-entry{background:#f5e6be;border-color:#d3b36f;color:#755824}
+@media (min-width:701px) and (max-width:1000px){
+  .topbar{gap:8px;padding-left:10px;padding-right:10px}
+  .brand-group{gap:6px}.brand-group .brand{font-size:16px;gap:7px}.brand-group .brand small{font-size:7px;letter-spacing:1px}
+  .chapter-tab{padding:5px;font-size:11px;gap:5px}
+}
+@media (max-width:700px){
+  .brand-group{flex:1 1 auto;gap:7px}.brand-group .brand{font-size:17px;gap:8px}
+  .teacher-demo-entry{font-size:10px;padding:5px 7px}
+}
 
 /* Keep all four practice tasks visible, including in a teacher-led classroom. */
 .task-line:has(.practice-tasks:not([hidden])){flex-direction:column;align-items:stretch;gap:7px}

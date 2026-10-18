@@ -6,9 +6,10 @@ import {dragFootprint,dropZone,insertionAt,movedInsertionIndex} from './drag-dro
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-${Date.now().toString(36)}-${Array.from(globalThis.crypto?.getRandomValues?.(new Uint32Array(3))||[Math.random()*1e9,Math.random()*1e9]).map(n=>n.toString(36)).join('')}`, esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaultTask=ch=>['','drink-swap','fresh-juice','tea','delivery'][ch];
-const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false};
+const teacherDemoRequested=new URLSearchParams(location.search).get('mode')==='demo';
+const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,teacherDemoMode:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false};
 let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId;
-const scope=()=>state.learner?.id||'practice';
+const scope=()=>state.teacherDemoMode?'teacher-demo':state.learner?.id||'practice';
 const graphKey=(ch=state.chapter,task=state.taskId)=>`draft:${scope()}:${ch}:${task}`;
 const metaKey=(key)=>`meta:${key}`;
 const task=()=>TASKS.find(t=>t.id===state.taskId);
@@ -37,12 +38,15 @@ function chain(){state.graph.edges=state.graph.nodes.slice(1).map((n,i)=>({from:
 function beforeEdit(){if(!editable())return false;state.undo.push(snapshot());if(state.undo.length>35)state.undo.shift();state.errorNode=null;state.activeNode=null;return true;}
 function changed(){renderGraph();scheduleSave();$('#result').hidden=true;updateControls();}
 function scheduleSave(){clearTimeout(saveTimer);const key=graphKey(),graph=snapshot();safeSet(key,{graph,updatedAt:Date.now()}).then(ok=>{if(ok)$('#saveStatus').textContent=state.submittedFingerprint&&state.submittedFingerprint!==fingerprint(graph)?'新草稿已保存 · 需重新提交':state.learner?'已存此设备 · 等待同步':'已保存在此设备';});saveTimer=setTimeout(()=>enqueue({kind:'draft',key,graph}),650);}
-async function persistNow({kind='draft',run,submission}={}){clearTimeout(saveTimer);const key=graphKey(),graph=snapshot();await safeSet(key,{graph,updatedAt:Date.now()});return enqueue({kind,key,graph,run,submission});}
+async function persistNow({kind='draft',run,submission}={}){if(teacherDemoRequested&&!state.teacherDemoMode)return;clearTimeout(saveTimer);const key=graphKey(),graph=snapshot();await safeSet(key,{graph,updatedAt:Date.now()});return enqueue({kind,key,graph,run,submission});}
 
 const learnerCode=()=>state.learner?.autoCode||state.learner?.seat||state.learner?.name||'';
 function renderConnection(){
   const el=$('#connection'),button=$('#accountButton'),code=learnerCode();
   el.classList.toggle('offline',!state.online);
+  if(state.teacherDemoMode){
+    el.textContent=state.online?'教师演示':'教师演示 · 离线保存';button.textContent='教师工作台';button.disabled=false;button.classList.remove('student-badge');button.setAttribute('aria-label','打开教师工作台');button.title='打开教师工作台';$('#playerName').textContent='教师';return;
+  }
   el.textContent=state.joining||state.checkingClass?'正在连接':state.learner?(state.authExpired?'正在恢复连接':!state.online?'离线保存中':state.session?.phase==='ended'?'课堂已结束':state.classUnavailable?'等待开课':'课堂已连接'):(state.online?'等待开课':'离线体验');
   button.textContent=code||'重新连接';button.disabled=state.joining||state.checkingClass;
   button.classList.toggle('student-badge',!!code);button.setAttribute('aria-label',code?`学生编号 ${code}，查看工牌`:'重新连接当前课堂');
@@ -90,7 +94,7 @@ function updateControls(){
   updateConnectionTargets();
   world.setMode(running?'run':allowed()?'explore':'locked');$('#mapHint').textContent=running?(state.demo?'正在观看示范':isDelivery()?'正在执行配送积木':'正在按流程图行动'):isDelivery()?'底部查坐标 · 点道路可探路':state.chapter===3?'点工作台选任务 · 各区作品分别保存':'点地面走动 · 点师傅听提示';
   $$('#coordinateCards button, #flowNodes input').forEach(el=>el.disabled=!edit);
-  $('#chapters').querySelectorAll('button').forEach(b=>b.disabled=!!state.session||running||state.switchingTask);
+  $('#chapters').querySelectorAll('button').forEach(b=>b.disabled=!!state.session||running||state.switchingTask||state.joining||state.checkingClass);
   renderInspector();
 }
 function renderGraph(){
@@ -245,11 +249,11 @@ function animateFlowLayout(before){
   follow();
 }
 function renderInspector(){
-  const n=state.graph?.nodes.find(n=>n.id===state.selected),el=$('#inspector');el.hidden=!n||n.kind!=='action';if(el.hidden)return;
+  const n=state.graph?.nodes.find(n=>n.id===state.selected),el=$('#inspector');el.hidden=state.chapter===2||state.chapter===3||!n||n.kind!=='action';if(el.hidden){el.replaceChildren();return;}
   const disabled=!editable()?'disabled':'';let params='';
   if(n.actionId==='move_crate')params=`<div class="inspector-row crate-params"><label for="crateFrom">搬出柜位<select id="crateFrom" data-param="from" ${disabled}>${['A','B','C'].map(v=>`<option ${n.params.from===v?'selected':''}>${v}</option>`).join('')}</select></label><label for="crateTo">→ 放入柜位<select id="crateTo" data-param="to" ${disabled}>${['A','B','C'].map(v=>`<option ${n.params.to===v?'selected':''}>${v}</option>`).join('')}</select></label></div>`;
   if(n.actionId==='move_to')params=`<div class="inspector-row"><label>地图位置</label><select data-destination ${disabled}><option value="">手动填写坐标</option>${deliveryDestinations().map(([id,p])=>`<option value="${id}" ${n.params?.x===p.x&&n.params?.y===p.y?'selected':''}>${id}（${p.x},${p.y}）</option>`).join('')}</select></div>`;
-  el.innerHTML=`<div class="inspector-row"><label for="nodeLabel">步骤文字（可修改）</label><input id="nodeLabel" type="text" maxlength="50" value="${esc(n.label||'')}" placeholder="${esc(actionLabel(n))}" ${disabled}></div>${params}<div class="move-buttons"><button class="secondary" data-edit="up" ${disabled}>↑ 上移</button><button class="secondary" data-edit="down" ${disabled}>↓ 下移</button><button class="quiet" data-edit="delete" ${disabled}>删除</button><button class="secondary" data-edit="done">完成</button></div>`;
+  el.innerHTML=`<div class="inspector-row"><label for="nodeLabel">步骤文字（可修改）</label><input id="nodeLabel" type="text" maxlength="50" value="${esc(n.label||'')}" placeholder="${esc(actionLabel(n))}" ${disabled}></div>${params}<div class="move-buttons">${isDelivery()?`<button class="secondary" data-edit="up" ${disabled}>↑ 上移</button><button class="secondary" data-edit="down" ${disabled}>↓ 下移</button>`:''}<button class="quiet" data-edit="delete" ${disabled}>删除</button><button class="secondary" data-edit="done">完成</button></div>`;
 }
 function revealNode(id){if(!$('#flowScroll').classList.contains('flow-fitted'))$(`[data-node="${id}"]`)?.scrollIntoView({block:'nearest',behavior:'smooth'});}
 function addAction(id,params=null,index=null){
@@ -706,6 +710,7 @@ async function prepareClassSwitch({archive=true,persist=true}={}){
 }
 let classSync=null;
 function syncCurrentClass(){
+  if(teacherDemoRequested||state.teacherDemoMode)return Promise.resolve();
   if(classSync)return classSync;
   if(!navigator.onLine||state.joining||!deviceToken||!state.graph)return Promise.resolve();
   classSync=(async()=>{
@@ -734,6 +739,7 @@ function syncCurrentClass(){
 $('#practiceButton').onclick=()=>{safeSet('hasEntered',true);$('#welcome').close();};
 $('#joinOpenButton').onclick=async e=>{e.preventDefault();safeSet('hasEntered',true);$('#welcome').close();await syncCurrentClass();if(!state.learner)toast('老师开课后会自动加入，先在这里等一等。');};
 $('#accountButton').onclick=async()=>{
+  if(state.teacherDemoMode){location.assign('/teacher.html');return;}
   if(!state.learner){await syncCurrentClass();if(!state.learner)toast('老师开课后会自动加入，无需填写信息。');return;}
   $('#identityCode').textContent=learnerCode();$('#identityClass').textContent=state.session?.name||'超市实践课堂';$('#identityDialog').showModal();
 };
@@ -804,9 +810,53 @@ $('#historyList').onclick=async e=>{
 };
 window.addEventListener('online',async()=>{state.online=true;renderConnection();try{await syncCurrentClass();await alignRoom();flushQueue();}catch{}});
 window.addEventListener('offline',()=>{state.online=false;renderConnection();renderNotice();$('#saveStatus').textContent='离线 · 已保存在此设备';});
-window.addEventListener('beforeunload',()=>{try{const key=`supermarket-tab:${state.learner?.id}`,lease=JSON.parse(localStorage.getItem(key)||'null');if(lease?.id===identityToken)localStorage.removeItem(key);}catch{}if(state.graph)safeSet(graphKey(),{graph:snapshot(),updatedAt:Date.now()});});
+window.addEventListener('beforeunload',()=>{try{const key=`supermarket-tab:${state.learner?.id}`,lease=JSON.parse(localStorage.getItem(key)||'null');if(lease?.id===identityToken)localStorage.removeItem(key);}catch{}if(state.graph&&(!teacherDemoRequested||state.teacherDemoMode))safeSet(graphKey(),{graph:snapshot(),updatedAt:Date.now()});});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&state.graph){persistNow();if(state.running)safeSet(`run:${scope()}:${state.running.id}`,state.running);}else syncCurrentClass().then(()=>alignRoom()).then(flushQueue).catch(()=>{});});
+async function teacherRequest(path,body){
+  const response=await fetch(path,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+  const data=await response.json();if(!response.ok)throw new Error(data.error||'教师身份验证未完成');return data;
+}
+function showTeacherLogin(message=''){
+  $('#teacherDemoError').textContent=message;$('#teacherDemoPassword').value='';
+  if(!$('#teacherDemoDialog').open)$('#teacherDemoDialog').showModal();
+  $('#teacherDemoPassword').focus();
+}
+async function openTeacherDemo(){
+  if(state.graph)await persistNow();
+  location.assign('/?mode=demo');
+}
+$('#teacherDemoButton').onclick=async()=>{
+  if(state.teacherDemoMode){if(state.graph)await persistNow();location.assign('/');return;}
+  try{if((await teacherRequest('/api/me')).role==='teacher'){await openTeacherDemo();return;}showTeacherLogin();}
+  catch{showTeacherLogin('暂时无法验证身份，请检查连接后重试。');}
+};
+$('#teacherDemoForm').onsubmit=async e=>{
+  e.preventDefault();const button=$('#teacherDemoForm [type=submit]');button.disabled=true;$('#teacherDemoError').textContent='';
+  try{await teacherRequest('/api/teacher/login',{key:$('#teacherDemoPassword').value});$('#teacherDemoPassword').value='';await openTeacherDemo();}
+  catch(error){$('#teacherDemoError').textContent=error.message;}
+  finally{button.disabled=false;}
+};
+function cancelTeacherLogin(){if(teacherDemoRequested)location.assign('/');else $('#teacherDemoDialog').close();}
+$('#teacherDemoCancel').onclick=cancelTeacherLogin;
+$('#teacherDemoDialog').addEventListener('cancel',e=>{e.preventDefault();cancelTeacherLogin();});
+async function recoverInterruptedRuns(){
+  // A page closed in mid-run keeps an interrupted record, never a completion.
+  for(const r of state.runs.filter(r=>r.status==='running')){r.status='interrupted';r.valid=false;r.reason='页面关闭前尚未执行完毕';r.result={trace:simulate(r.graph).trace.slice(0,r.executedNodes.length),message:r.reason};await storeRun(r);}
+}
+async function bootstrapTeacherDemo(){
+  let me;try{me=await teacherRequest('/api/me');}catch{}
+  if(me?.role!=='teacher'){
+    state.graph=cleanGraph();chain();renderChapter();showTeacherLogin();return;
+  }
+  state.teacherDemoMode=true;document.body.classList.add('teacher-demo-mode');
+  $('#teacherDemoButton').textContent='退出演示';$('#teacherDemoButton').title='返回学生课堂';
+  state.runs=(await db.all(`run:${scope()}:`)).map(x=>x.value);
+  const last=await db.get(`last:${scope()}`);await changeChapter(last?.chapter||1,last?.taskId||'drink-swap',{transition:false});
+  await recoverInterruptedRuns();state.checkingClass=false;renderConnection();renderNotice();updateControls();
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
 async function bootstrap(){
+  if(teacherDemoRequested){await bootstrapTeacherDemo();return;}
   deviceToken=await getDeviceToken();
   let participant=await db.get('participant').catch(()=>null),me=null;try{me=await api('/api/me');}catch{}
   if(me?.role==='student')participant=me;
@@ -820,8 +870,7 @@ async function bootstrap(){
   }else{
     state.runs=(await db.all('run:practice:')).map(x=>x.value);const last=await db.get('last:practice');await changeChapter(last?.chapter||1,last?.taskId||'drink-swap',{transition:false});
   }
-  // A page closed in mid-run keeps an interrupted record, never a completion.
-  for(const r of state.runs.filter(r=>r.status==='running')){r.status='interrupted';r.valid=false;r.reason='页面关闭前尚未执行完毕';r.result={trace:simulate(r.graph).trace.slice(0,r.executedNodes.length),message:r.reason};await storeRun(r);}
+  await recoverInterruptedRuns();
   await syncCurrentClass();state.checkingClass=false;
   if(!state.learner&&!await db.get('hasEntered'))$('#welcome').showModal();
   clearInterval(classTimer);classTimer=setInterval(()=>syncCurrentClass(),4000);

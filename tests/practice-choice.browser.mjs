@@ -6,7 +6,7 @@ import {mkdtempSync,rmSync,existsSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {createClassroomServer} from '../server.mjs';
-import {TASKS} from '../shared/engine.mjs';
+import {TASKS,actionLabel} from '../shared/engine.mjs';
 
 let playwright;
 for(const location of [process.env.PLAYWRIGHT_MODULE,'playwright','/Users/alumos/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs'].filter(Boolean)){
@@ -87,7 +87,8 @@ try{
   await chosen(id);const expected=saved.get(id);
   await poll(()=>graphNodes().count().then(count=>count===expected.graph.nodes.length),`${id} graph restored`);
   assert.deepEqual(await student.locator('#flowNodes .flow-node').evaluateAll(elements=>elements.map(element=>element.dataset.node)),expected.graph.nodes.map(node=>node.id));
-  assert.match(await student.locator('#flowNodes').textContent(),new RegExp(`独立草稿 ${id}`));
+  assert.deepEqual(await student.locator('#flowNodes .flow-node:not(.terminal) .node-copy strong').allTextContents(),expected.graph.nodes.filter(node=>node.kind==='action').map(actionLabel));
+  assert.equal(await student.locator('#inspector').isVisible(),false,`${id} has no step inspector`);
  }
  await teacher.goto(origin+'/teacher.html');await teacher.locator('#key').fill('isolated-practice-choice');await teacher.locator('#login-form button').click();await teacher.locator('#login-dialog').waitFor({state:'hidden'});
  const {session}=await api(teacherContext,'/api/sessions',{method:'POST',body:{name:'第三章四任务选择验收'},status:201});
@@ -107,13 +108,14 @@ try{
  for(const task of tasks){
   await select(task.id,{touch:task.id==='fish'});
   assert.equal(await graphNodes().count(),2,`${task.id} begins with its own empty graph`);
-  for(const [index,action] of task.actions.entries()){
+  for(const action of task.actions){
    await dragAction(action.actionId,{touch:task.id==='fish'});
-   if(index===0){await student.locator('#nodeLabel').fill(`独立草稿 ${task.id}`);await student.locator('#nodeLabel').blur();}
-   if(await student.locator('#inspector [data-edit=done]').isVisible())await student.locator('#inspector [data-edit=done]').click();
+   assert.equal(await student.locator('#inspector').isVisible(),false,`${task.id} drag keeps the operation palette available`);
   }
-  const draft=await poll(async()=>{const data=await works();return data.drafts.find(d=>d.learnerId===learnerId&&d.taskId===task.id&&d.graph.nodes.length===7&&d.graph.nodes.some(n=>n.label===`独立草稿 ${task.id}`));},`${task.id} independent SQLite draft`);
+  const visibleIds=await graphNodes().evaluateAll(elements=>elements.map(element=>element.dataset.node));
+  const draft=await poll(async()=>{const data=await works();return data.drafts.find(d=>d.learnerId===learnerId&&d.taskId===task.id&&d.graph.nodes.length===7&&d.graph.nodes.every((node,index)=>node.id===visibleIds[index]));},`${task.id} independent SQLite draft`);
   assert.deepEqual(draft.graph.nodes.filter(node=>node.kind==='action').map(node=>node.actionId),task.actions.map(action=>action.actionId));
+  for(const other of saved.values())assert.equal(draft.graph.nodes.filter(node=>node.kind==='action').some(node=>other.graph.nodes.some(existing=>existing.id===node.id)),false,'task action identities stay independent');
   saved.set(task.id,draft);
  }
  assert.equal(new Set([...saved.values()].map(draft=>draft.id)).size,4,'each task gets its own draft id');
@@ -163,8 +165,7 @@ try{
   await teacher.locator('.detail-task').selectOption(task.id);await teacher.locator('.run-select').selectOption('draft');
   await poll(()=>teacher.locator('.work-detail').getAttribute('data-task').then(value=>value===task.id),`${task.id} teacher detail`);
   assert.deepEqual(await teacher.locator('.graph [data-node]').evaluateAll(elements=>elements.map(element=>element.dataset.node)),saved.get(task.id).graph.nodes.map(node=>node.id));
-  assert.match(await teacher.locator('.graph').textContent(),new RegExp(`独立草稿 ${task.id}`));
-  for(const other of tasks.filter(other=>other.id!==task.id))assert.equal((await teacher.locator('.graph').textContent()).includes(`独立草稿 ${other.id}`),false);
+  assert.deepEqual(await teacher.locator('.graph [data-node] small').allTextContents(),saved.get(task.id).graph.nodes.filter(node=>node.kind==='action').map(node=>`实际操作：${actionLabel(node)}`));
   if(output)await teacher.screenshot({path:join(output,`practice-choice-detail-${task.id}.png`),fullPage:true});
  }
  await teacher.locator('#detail-dialog [data-close]').click();

@@ -51,6 +51,7 @@ try{
           header:rect(document.querySelector('.topbar')),scene:rect(document.querySelector('.scene-panel')),editor:rect(document.querySelector('.editor-panel')),tools:rect(document.querySelector('.control-panel')),world:rect(document.querySelector('#world')),run:rect(document.querySelector('#runButton')),
           footer:rect(document.querySelector('.site-footer')),registration:rect(document.querySelector('.site-footer a')),submit:rect(document.querySelector('#submitButton')),
           columns:Number(document.querySelector('#flowNodes').dataset.columns),
+          palette:[...document.querySelectorAll('#actionCards [data-palette-drag]')].map(rect),
           inspector:document.querySelector('#inspector').hidden?null:{...rect(document.querySelector('#inspector')),controls:[...document.querySelectorAll('#inspector label,#inspector input,#inspector select,#inspector button')].map(element=>{
             const bounds=rect(element);let clip={left:0,top:0,right:innerWidth,bottom:innerHeight};
             for(let parent=element.parentElement;parent;parent=parent.parentElement){const style=getComputedStyle(parent),r=rect(parent);if(/hidden|clip|auto|scroll/.test(style.overflowX)){clip.left=Math.max(clip.left,r.left);clip.right=Math.min(clip.right,r.right);}if(/hidden|clip|auto|scroll/.test(style.overflowY)){clip.top=Math.max(clip.top,r.top);clip.bottom=Math.min(clip.bottom,r.bottom);}}
@@ -83,6 +84,11 @@ try{
         assert.ok(layout.editor.left>=layout.scene.right-1,describe+': map and editor should be side by side');
       }
       assert.equal(layout.columns,1,describe+': every program remains a single vertical column');
+      for(const [index,card] of layout.palette.entries()){
+        assert.ok(Math.abs(card.left-layout.palette[0].left)<=1&&Math.abs(card.width-layout.palette[0].width)<=1,describe+': operations share one full-width vertical column');
+        if(index)assert.ok(card.top>=layout.palette[index-1].bottom-1,describe+': operations follow each other downwards');
+      }
+      if(scenario.chapter===2||scenario.chapter===3)assert.equal(layout.inspector,null,describe+': fixed operations have no step inspector');
       const center=layout.nodes[0].left+layout.nodes[0].width/2;
       for(const [index,node] of layout.nodes.entries()){
         assert.ok(Math.abs(node.left+node.width/2-center)<=1,describe+`: ${node.id} shares the vertical centerline`);
@@ -153,18 +159,22 @@ try{
       }
       await verifyArrows('after resize');
       const first=page.locator('#flowNodes .flow-node').nth(1);
-      await first.locator('[data-grip]').tap();await page.locator('#inspector').waitFor({state:'visible'});
+      await first.locator('[data-grip]').tap();
+      const hasInspector=scenario.chapter===1||scenario.chapter===4;
+      await page.locator('#inspector').waitFor({state:hasInspector?'visible':'hidden'});
       const selected=await measure('selected');
       await verifyMapPainted('after selecting action');
-      const done=page.locator('[data-edit=done]');assert.equal(await done.isEnabled(),true);
+      const done=page.locator('[data-edit=done]');
+      if(hasInspector)assert.equal(await done.isEnabled(),true);
       if(scenario.chapter===4)assert.equal(await page.locator('#flowNodes .block-destination').count(),scenario.steps,'every delivery block retains its destination label element at each viewport');
-      if(scenario.chapter===1){await page.locator('[data-param=from]').selectOption('A');await page.locator('[data-param=to]').selectOption('C');}
+      if(scenario.chapter===1){assert.equal(await page.locator('#inspector [data-edit=up],#inspector [data-edit=down]').count(),0,'chapter 1 reorders by dragging');await page.locator('[data-param=from]').selectOption('A');await page.locator('[data-param=to]').selectOption('C');}
       else if(scenario.chapter===4){assert.equal(await page.locator('#inspector [data-destination] option[value^=J]').count(),0);assert.equal(await page.locator('#coordinateCards [data-coordinate^=J]').count(),0);assert.deepEqual(await page.locator('#coordinateCards [data-coordinate]').evaluateAll(cards=>cards.map(card=>card.dataset.coordinate)),['W','A','B','C','D','E','F','G','H','I']);assert.doesNotMatch(await page.locator('#coordinateCards').innerText(),/\bx\b|\by\b/);await page.locator('#inspector [data-destination]').selectOption('A');assert.equal(await page.locator('#flowNodes [data-node-coordinate=x]').first().inputValue(),'4');assert.equal(await page.locator('#flowNodes [data-node-coordinate=y]').first().inputValue(),'7');await page.locator('#inspector [data-destination]').selectOption('W');assert.equal(await page.locator('#flowNodes [data-node-coordinate=y]').first().inputValue(),'1');for(const [axis,value] of [['x','10'],['y','3']]){await page.locator(`#flowNodes [data-node-coordinate=${axis}]`).first().fill(value);await page.locator(`#flowNodes [data-node-coordinate=${axis}]`).first().press('Tab');}
-      }else{await page.locator('#nodeLabel').fill('确认这一步');await page.locator('#nodeLabel').press('Tab');}
-      await measure('parameter edited');
+      }
+      await measure(hasInspector?'parameter edited':'fixed action selected');
       if(output)await page.screenshot({path:join(output,`layout-${scenario.task}-${viewport.width}x${viewport.height}-editing.png`)});
-      await done.tap();assert.equal(await page.locator('#inspector').isVisible(),false);
-      await measure('inspector closed');await verifyArrows('after touch edit');
+      if(hasInspector)await done.tap();
+      assert.equal(await page.locator('#inspector').isVisible(),false);
+      await measure(hasInspector?'inspector closed':'fixed action remains visible');await verifyArrows('after touch edit');
       if(scenario.chapter===4&&((viewport.width===1280&&viewport.height===720)||(viewport.width===768&&viewport.height===1024))){
         // The classroom suite covers authentication. This layout fixture uses
         // the real notice element and classroom copy to reserve its exact space.

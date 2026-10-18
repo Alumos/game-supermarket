@@ -62,3 +62,7 @@ Student layout v1.2.0: all ordinary flowcharts and delivery programs use one cen
 `LEARNING_GOALS` 为章节编号到学习目标文字的只读映射。学生提交界面为当前章节选择 1～3 星，未选不能提交；`selfAssessment:{goalId:chapterId,stars}` 随草稿版本、提交事务进入本机队列并补传。服务端校验 goalId 与作品章节一致、stars 为整数 1～3。重复 submissionId 保留初始提交内容，显式非法自评拒绝。
 
 `source:chapter` 自动收存不产生自评；无自评字段的旧客户端提交仍可读取和补传，历史 explanation 保留。教师按学生、章节、任务展示最新有效学生自评与历次记录，未评单独显示，不计作 0 星。CSV 追加学习目标、最新自评星数和满分列，JSON 保留原始提交，打印包含自评记录。
+
+### 教师演示（v1.3.3）
+
+学生页左上角保留教师演示入口。`/?mode=demo` 在读取设备令牌、恢复学生身份或连接课堂前通过现有教师 Cookie 验证；未登录需输入后台密码。验证请求不发送学生角色头，双身份 Cookie 共存时仍可识别教师。演示使用独立 `teacher-demo` 本机存储作用域，不自动加入课堂、不连接学生事件流、不上传草稿、运行或自评，也不修改原 participant 或自动入场令牌。四个章节自由切换，第三章四任务分别保存；退出回到根地址后恢复正常学生课堂流程。未通过验证的占位画布不能保存。
