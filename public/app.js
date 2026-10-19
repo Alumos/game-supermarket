@@ -7,7 +7,7 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-${Date.now().toString(36)}-${Array.from(globalThis.crypto?.getRandomValues?.(new Uint32Array(3))||[Math.random()*1e9,Math.random()*1e9]).map(n=>n.toString(36)).join('')}`, esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaultTask=ch=>['','drink-swap','fresh-juice','tea','delivery'][ch];
 const teacherDemoRequested=new URLSearchParams(location.search).get('mode')==='demo';
-const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,teacherDemoMode:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false};
+const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,teacherDemoMode:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false,formingFlow:false};
 let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId;
 const scope=()=>state.teacherDemoMode?'teacher-demo':state.learner?.id||'practice';
 const graphKey=(ch=state.chapter,task=state.taskId)=>`draft:${scope()}:${ch}:${task}`;
@@ -17,12 +17,14 @@ const isDelivery=()=>state.chapter===4;
 let dragClickUntil=0,cancelCardDrag=null,dragPreview=null,dragLayoutBase=null;
 const DRAG_SCALE=.92;
 const flowMotions=new Map();
-let flowMotionFrame=0;
+let flowMotionFrame=0,formationTimer;
+const isFruit=()=>state.chapter===2;
+const isFruitSorting=()=>isFruit()&&state.graph?.flowchartStage==='sorting';
 const deliveryDestinations=()=>Object.entries(DELIVERY_MAP.points).filter(([id])=>!id.startsWith('J'));
 const allowed=()=>!state.joining&&!state.checkingClass&&!state.switchingTask&&!state.classUnavailable&&!state.authExpired&&!state.tabBlocked&&(!state.session||state.session.phase==='practice');
-const editable=()=>allowed()&&!state.running&&!state.demo;
-const cleanGraph=(ch=state.chapter,t=state.taskId)=>({schemaVersion:1,chapterId:ch,taskId:t,contentVersion:'1.0.0',...(t==='delivery'?{deliveryCoordinates:'cartesian-y-up',deliveryRulesVersion:DELIVERY_RULES_VERSION}:{}),revision:0,nodes:[{id:uid(),kind:'start'},{id:uid(),kind:'end'}],edges:[]});
-const currentDeliveryDraft=graph=>{const normalized=normalizeDeliveryGraph(graph);return normalized?.taskId==='delivery'&&deliveryRulesVersion(normalized)!==DELIVERY_RULES_VERSION?{...normalized,deliveryRulesVersion:DELIVERY_RULES_VERSION}:normalized;};
+const editable=()=>allowed()&&!state.running&&!state.demo&&!state.formingFlow;
+const cleanGraph=(ch=state.chapter,t=state.taskId)=>({schemaVersion:1,chapterId:ch,taskId:t,contentVersion:'1.0.0',...(t==='fresh-juice'?{flowchartStage:'sorting'}:{}),...(t==='delivery'?{deliveryCoordinates:'cartesian-y-up',deliveryRulesVersion:DELIVERY_RULES_VERSION}:{}),revision:0,nodes:[{id:uid(),kind:'start'},{id:uid(),kind:'end'}],edges:[]});
+const currentDeliveryDraft=graph=>{const normalized=normalizeDeliveryGraph(graph);if(normalized?.taskId==='fresh-juice'&&!normalized.flowchartStage)normalized.flowchartStage=normalized.nodes.some(n=>n.kind==='action')?'formed':'sorting';return normalized?.taskId==='delivery'&&deliveryRulesVersion(normalized)!==DELIVERY_RULES_VERSION?{...normalized,deliveryRulesVersion:DELIVERY_RULES_VERSION}:normalized;};
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4000);}
 function storageError(e){$('#saveStatus').textContent=e.message||'设备存储不可用';$('#saveStatus').style.color='#ad6c43';toast(e.message||'设备存储不可用，请保留此页面');}
 async function safeSet(key,value){try{await db.set(key,value);return true;}catch(e){storageError(e);return false;}}
@@ -34,7 +36,10 @@ async function api(path,options={}){
   state.online=true;renderConnection();return data;
 }
 function snapshot(){return copy(state.graph);}
-function chain(){state.graph.edges=state.graph.nodes.slice(1).map((n,i)=>({from:state.graph.nodes[i].id,to:n.id}));}
+function chain({form=false}={}){
+  if(isFruit()){state.graph.flowchartStage=form?'formed':'sorting';if(!form){state.graph.edges=[];return;}}
+  state.graph.edges=state.graph.nodes.slice(1).map((n,i)=>({from:state.graph.nodes[i].id,to:n.id}));
+}
 function beforeEdit(){if(!editable())return false;state.undo.push(snapshot());if(state.undo.length>35)state.undo.shift();state.errorNode=null;state.activeNode=null;return true;}
 function changed(){renderGraph();scheduleSave();$('#result').hidden=true;updateControls();}
 function scheduleSave(){clearTimeout(saveTimer);const key=graphKey(),graph=snapshot();safeSet(key,{graph,updatedAt:Date.now()}).then(ok=>{if(ok)$('#saveStatus').textContent=state.submittedFingerprint&&state.submittedFingerprint!==fingerprint(graph)?'新草稿已保存 · 需重新提交':state.learner?'已存此设备 · 等待同步':'已保存在此设备';});saveTimer=setTimeout(()=>enqueue({kind:'draft',key,graph}),650);}
@@ -65,8 +70,8 @@ function renderChapter(){
   $('#paletteHint').textContent=delivery?'拖动蓝色积木到画布':'拖动蓝色卡片到画布';
   $('#executionHint').textContent=delivery?'从上到下，依次执行配送积木':'按箭头顺序，一步一步执行';
   $('#structureHelp').textContent=delivery?'把移动积木依次拼接。每块沿横向或纵向道路直走；转弯要再加一块。途经地址会自动交付。点地图探路不计入成绩。':'圆角框表示开始和结束，方框写操作，箭头表示执行顺序。点地面探路不会改变任务结果。';
-  $('#connectButton').hidden=delivery;$('#chainButton').hidden=delivery;$('#demoButton').textContent=delivery?'看配送示范':'看师傅示范';
-  $('#flowEmpty').innerHTML=delivery?'把右边的蓝色积木拖进来<br><small>先看坐标，再决定配送顺序</small>':'从右边拖入一个操作<br><small>再调整顺序，连接成完整的流程图</small>';
+  $('#connectButton').hidden=delivery||isFruit();$('#chainButton').hidden=delivery;$('#chainButton').textContent=isFruit()?'按排序形成流程图':'按排列连线';$('#chainButton').classList.toggle('form-flow-button',isFruit());$('#demoButton').textContent=delivery?'看配送示范':'看师傅示范';
+  $('#flowEmpty').innerHTML=delivery?'把右边的蓝色积木拖进来<br><small>先看坐标，再决定配送顺序</small>':isFruit()?'把右边的操作卡拖进来<br><small>先排好顺序，再点“按排序形成流程图”</small>':'从右边拖入一个操作<br><small>再调整顺序，连接成完整的流程图</small>';
   $('#rules').innerHTML=delivery?'<p>六单在出发时全部取好，A、E含冷藏商品，D是普通饼干订单。必须优先留意送达时限。走一格1任务分钟，每单交付2分钟。到达时刻不超过时限才成功，越早送达奖励越多；超时变质会扣金币。</p><p>每块积木沿一条直路移动，转弯需要新的坐标积木。思考、动画快进和暂停不计任务时间。把六单都处理完，再比较用时与金币。</p>':`<p>${esc(t.description)}</p>`;
   const actions=availableActions(state.chapter,state.taskId),mixed=actions.length>3?[actions[2],actions[0],actions[4],actions[1],actions[3]]:actions;
   $('#actionCards').innerHTML=mixed.filter(Boolean).map(a=>`<button class="action-card ${delivery?'block-palette':''}" data-action="${a.actionId}" data-palette-drag="${a.actionId}">${delivery?'⠿ 移动到（ , ）':`＋ ${esc(a.label)}`}</button>`).join('');
@@ -85,24 +90,27 @@ function renderNotice(){
 }
 function updateControls(){
   const edit=editable(),running=!!state.running||state.demo;
+  $('#executionHint').textContent=isFruitSorting()?'先排好操作，再形成流程图':isDelivery()?'从上到下，依次执行配送积木':'按箭头顺序，一步一步执行';
   if(!edit)cancelCardDrag?.();
   if(!allowed()&&$('#submitDialog').open)$('#submitDialog').close();
-  $('#runButton').disabled=!edit;$('#submitButton').disabled=!edit;$('#clearButton').disabled=!edit;$('#chainButton').disabled=!edit;$('#connectButton').disabled=!edit;$('#undoButton').disabled=!edit||!state.undo.length;
+  $('#runButton').disabled=!edit||isFruitSorting();$('#submitButton').disabled=!edit;$('#clearButton').disabled=!edit;$('#chainButton').disabled=!edit||isFruit()&&!state.graph.nodes.some(n=>n.kind==='action');$('#connectButton').disabled=!edit;$('#undoButton').disabled=!edit||!state.undo.length;
   $$('#practiceTasks button').forEach(button=>button.disabled=!edit);
   $$('.action-card').forEach(e=>e.disabled=!edit);$$('.chapter-tab').forEach(e=>e.disabled=!!state.session||running||state.joining||state.checkingClass);$('#pauseButton').disabled=!running||state.teacherPaused;$('#pauseButton').textContent=state.userPaused?'继续':'暂停';$('#stopButton').disabled=!running;$('#demoButton').disabled=running||state.tabBlocked||state.joining||state.checkingClass||state.switchingTask||state.classUnavailable||!!state.session&&['waiting','paused','ended'].includes(state.session.phase);
   $('#flowCanvas').classList.toggle('read-only',!edit);$('#connectButton').classList.toggle('active',state.connecting);$('#flowCanvas').classList.toggle('connecting',state.connecting);requestGraphLayout();
   updateConnectionTargets();
   world.setMode(running?'run':allowed()?'explore':'locked');$('#mapHint').textContent=running?(state.demo?'正在观看示范':isDelivery()?'正在执行配送积木':'正在按流程图行动'):isDelivery()?'底部查坐标 · 点道路可探路':state.chapter===3?'点工作台选任务 · 各区作品分别保存':'点地面走动 · 点师傅听提示';
   $$('#coordinateCards button, #flowNodes input').forEach(el=>el.disabled=!edit);
-  $('#chapters').querySelectorAll('button').forEach(b=>b.disabled=!!state.session||running||state.switchingTask||state.joining||state.checkingClass);
+  $('#chapters').querySelectorAll('button').forEach(b=>b.disabled=!!state.session||running||state.formingFlow||state.switchingTask||state.joining||state.checkingClass);
   renderInspector();
 }
 function renderGraph(){
   stopFlowMotion();
+  $('#flowCanvas').classList.toggle('fruit-flow',isFruit());
   if(isDelivery()){renderProgram();return;}
   $('#flowCanvas').classList.remove('program-canvas');
-  const nodes=state.graph.nodes;$('#flowEmpty').hidden=nodes.some(n=>n.kind==='action');
-  $('#flowNodes').innerHTML=nodes.map((n,index)=>`<div class="flow-node ${n.kind!=='action'?'terminal':''} ${state.selected===n.id?'selected':''} ${state.activeNode===n.id?'executing':''} ${state.errorNode===n.id?'failed':''}" data-node="${n.id}" tabindex="0" role="button" aria-label="${esc(n.label||actionLabel(n.kind==='action'?n:{actionId:n.kind}))}">${n.kind!=='start'?`<button class="port in" data-port="in" data-id="${n.id}" aria-label="连接到这一步"></button>`:''}${n.kind==='action'?`<span class="node-grip" data-grip="${n.id}" role="button" aria-label="拖动排序">⠿</span><div class="node-copy"><strong>${esc(n.label||actionLabel(n))}</strong>${n.label?`<small>${esc(actionLabel(n))}</small>`:''}</div><span class="node-number">${String(index).padStart(2,'0')}</span>`:n.kind==='start'?'开始':'结束'}${n.kind!=='end'?`<button class="port out" data-port="out" data-id="${n.id}" aria-label="从这一步连出"></button>`:''}</div>`).join('');
+  $('#flowCanvas').classList.toggle('fruit-sorting',isFruitSorting());
+  const nodes=isFruitSorting()?state.graph.nodes.filter(n=>n.kind==='action'):state.graph.nodes;$('#flowEmpty').hidden=nodes.some(n=>n.kind==='action');
+  $('#flowNodes').innerHTML=nodes.map((n,index)=>`<div class="flow-node ${n.kind!=='action'?'terminal':''} ${state.selected===n.id?'selected':''} ${state.activeNode===n.id?'executing':''} ${state.errorNode===n.id?'failed':''}" data-node="${n.id}" style="--formation-order:${index}" tabindex="0" role="button" aria-label="${esc(n.label||actionLabel(n.kind==='action'?n:{actionId:n.kind}))}">${!isFruitSorting()&&n.kind!=='start'?`<button class="port in" data-port="in" data-id="${n.id}" aria-label="连接到这一步"></button>`:''}${n.kind==='action'?`<span class="node-grip" data-grip="${n.id}" role="button" aria-label="拖动排序">⠿</span><div class="node-copy"><strong>${esc(n.label||actionLabel(n))}</strong>${n.label?`<small>${esc(actionLabel(n))}</small>`:''}</div><span class="node-number">${String(isFruitSorting()?index+1:index).padStart(2,'0')}</span>`:n.kind==='start'?'开始':'结束'}${!isFruitSorting()&&n.kind!=='end'?`<button class="port out" data-port="out" data-id="${n.id}" aria-label="从这一步连出"></button>`:''}</div>`).join('');
   updateConnectionTargets();
   requestGraphLayout();renderInspector();
 }
@@ -120,7 +128,7 @@ function placeInspector(){
   if(details.parentElement!==detailsParent)detailsParent.append(details);
 }
 function renderProgram(){
-  $('#flowCanvas').classList.add('program-canvas');$('#flowEdges').innerHTML='';
+  $('#flowCanvas').classList.remove('fruit-sorting');$('#flowCanvas').classList.add('program-canvas');$('#flowEdges').innerHTML='';
   $('#flowEmpty').hidden=state.graph.nodes.some(n=>n.kind==='action');
   $('#flowNodes').innerHTML=state.graph.nodes.map((n,index)=>`<div class="flow-node program-block ${n.kind!=='action'?'terminal block-'+n.kind:''} ${state.selected===n.id?'selected':''} ${state.activeNode===n.id?'executing':''} ${state.errorNode===n.id?'failed':''}" data-node="${n.id}" tabindex="0" role="group" aria-label="${esc(actionLabel(n.kind==='action'?n:{actionId:n.kind}))}">${programNodeContent(n,index)}</div>`).join('');
   requestGraphLayout();renderInspector();
@@ -173,7 +181,7 @@ function layoutGraph(){
   const width=Math.max(100,viewport.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight));
   const height=Math.max(70,viewport.clientHeight-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom));
   const nodes=dragPreview?.order||$$('#flowNodes .flow-node');
-  if(!nodes.length)return;
+  if(!nodes.length){$('#flowCanvas').style.height=`${height}px`;viewport.classList.add('flow-fitted');return;}
   if(isDelivery()){layoutProgram(width,height,nodes);return;}
   layoutVerticalNodes(width,height,nodes,{sizes:[[56,36,24],[48,34,18],[44,32,12],[44,32,8]],maxWidth:320});
   orientFlowPorts(nodes);
@@ -198,7 +206,7 @@ function drawEdges(){
 }
 function paintEdges(){
   if(!state.graph)return;
-  if(isDelivery()){$('#flowEdges').innerHTML='';return;}
+  if(isDelivery()||isFruitSorting()){$('#flowEdges').innerHTML='';return;}
   orientFlowPorts($$('#flowNodes .flow-node'));
   const svg=$('#flowEdges'),box=$('#flowCanvas').getBoundingClientRect();
   const anchor=(node,port)=>{
@@ -208,7 +216,7 @@ function paintEdges(){
   svg.innerHTML=`<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z" fill="#4d7858"/></marker></defs>`+state.graph.edges.map((edge,i)=>{
     const a=$(`[data-node="${edge.from}"]`),b=$(`[data-node="${edge.to}"]`);if(!a||!b)return '';
     const p=anchor(a,'out'),q=anchor(b,'in'),path=`M${p.x},${p.y} L${q.x},${q.y}`;
-    return `<path data-edge="${i}" class="flow-edge" d="${path}" marker-end="url(#arrow)"/>`;
+    return `<path data-edge="${i}" class="flow-edge" style="--formation-order:${i}" pathLength="1" d="${path}" marker-end="url(#arrow)"/>`;
   }).join('');
 }
 function captureFlowLayout(){
@@ -263,11 +271,11 @@ function addAction(id,params=null,index=null){
   state.graph.nodes.splice(index===null?state.graph.nodes.length-1:Math.max(1,Math.min(index,state.graph.nodes.length-1)),0,n);state.selected=isDelivery()?null:n.id;chain();changed();requestAnimationFrame(()=>revealNode(n.id));return n.id;
 }
 function moveNode(id,direction){const index=state.graph.nodes.findIndex(n=>n.id===id),target=index+direction;if(index<1||target<1||target>state.graph.nodes.length-2)return;if(!beforeEdit())return;[state.graph.nodes[index],state.graph.nodes[target]]=[state.graph.nodes[target],state.graph.nodes[index]];chain();changed();}
-function selectNode(id){if(state.connecting){const n=state.graph.nodes.find(n=>n.id===id);if(!state.connectFrom&&n.kind!=='end'){state.connectFrom=id;toast('再点要连接到的步骤');}else if(state.connectFrom&&n.kind!=='start'){connectNodes(state.connectFrom,id);state.connectFrom=null;}return;}state.selected=state.selected===id?null:id;renderGraph();}
+function selectNode(id){if(state.formingFlow)return;if(state.connecting){const n=state.graph.nodes.find(n=>n.id===id);if(!state.connectFrom&&n.kind!=='end'){state.connectFrom=id;toast('再点要连接到的步骤');}else if(state.connectFrom&&n.kind!=='start'){connectNodes(state.connectFrom,id);state.connectFrom=null;}return;}state.selected=state.selected===id?null:id;renderGraph();}
 function connectNodes(from,to){if(from===to)return toast('请连接两个不同的步骤框');if(!beforeEdit())return;state.graph.edges=state.graph.edges.filter(e=>e.from!==from&&e.to!==to);state.graph.edges.push({from,to});changed();}
 $('#flowNodes').addEventListener('click',e=>{if(Date.now()<dragClickUntil||e.target.closest('input,label'))return;const port=e.target.closest('[data-port]');if(port){e.stopPropagation();if(!editable())return;if(!state.connecting){selectNode(port.dataset.id);return;}if(port.dataset.port==='out'){state.connectFrom=port.dataset.id;toast('点下一步的连接点，画出箭头');}else if(state.connectFrom){connectNodes(state.connectFrom,port.dataset.id);state.connectFrom=null;}updateControls();return;}const n=e.target.closest('[data-node]');if(n)selectNode(n.dataset.node);});
 $('#flowNodes').addEventListener('keydown',e=>{if(e.target.closest('input'))return;if(['Enter',' '].includes(e.key)&&e.target.matches('[data-node]')){e.preventDefault();selectNode(e.target.dataset.node);}});
-$('#flowEdges').addEventListener('click',e=>{if(e.target.dataset.edge!==undefined&&beforeEdit()){state.graph.edges.splice(Number(e.target.dataset.edge),1);changed();toast('连线已删除，可以重新连接');}});
+$('#flowEdges').addEventListener('click',e=>{if(!isFruit()&&e.target.dataset.edge!==undefined&&beforeEdit()){state.graph.edges.splice(Number(e.target.dataset.edge),1);changed();toast('连线已删除，可以重新连接');}});
 // Keep capture on a stable element: committing an input can replace every card.
 function beginCardDrag(event,{getSource,getCanvasGhost,onStart,onMove,onDrop,onTap,onCleanup}){
   if(cancelCardDrag||event.isPrimary===false)return;
@@ -347,6 +355,14 @@ function cardDropTarget(point,footprint,sourceId=null,previous=null){
   const zone=dropZone(footprint,$('.editor-panel').getBoundingClientRect(),$('.control-panel').getBoundingClientRect());
   const canvas=$('#flowCanvas').getBoundingClientRect();
   const nodes=dragLayoutBase?dragLayoutBase.map(n=>({id:n.id,rect:{left:canvas.left+n.left,top:canvas.top+n.top,right:canvas.left+n.left+n.width,bottom:canvas.top+n.top+n.height}})):$$('#flowNodes .flow-node').map(el=>({id:el.dataset.node,rect:el.getBoundingClientRect()}));
+  if(isFruitSorting()){
+    // Virtual terminal bounds map visible card slots to the saved graph indices
+    // without showing terminal frames or reserving their space on the canvas.
+    const start=state.graph.nodes[0],end=state.graph.nodes.at(-1),first=nodes[0]?.rect,last=nodes.at(-1)?.rect;
+    const bounds=(top,bottom)=>({left:canvas.left,right:canvas.right,top,bottom});
+    nodes.unshift({id:start.id,rect:bounds(first?first.top-2:canvas.top-2,first?first.top-1:canvas.top-1)});
+    nodes.push({id:end.id,rect:bounds(last?last.bottom+1:canvas.top+1,last?last.bottom+2:canvas.top+2)});
+  }
   return {zone,insertion:zone==='editor'?insertionAt(point,footprint,nodes,{layout:'vertical',sourceId,previous}):null};
 }
 function clearDropTarget(releaseLayout=null){
@@ -366,10 +382,10 @@ function showDropTarget(target,sourceId=null,footprint=null){
   if(!insertion||!footprint){clearDropTarget();return null;}
   $('#flowScroll').classList.add('drop-ready');
   $$('#flowNodes .drop-target').forEach(el=>{el.classList.remove('drop-target');delete el.dataset.dropSide;delete el.dataset.dropAxis;delete el.dataset.dropDirection;});
-  const nodes=$$('#flowNodes .flow-node'),el=nodes.find(node=>node.dataset.node===insertion.targetId);if(!el){clearDropTarget();return null;}
-  el.classList.add('drop-target');el.dataset.dropSide=insertion.side;el.dataset.dropAxis=insertion.axis;el.dataset.dropDirection=String(insertion.direction);
-  const from=nodes.findIndex(node=>node.dataset.node===sourceId);
-  const index=from<0?insertion.index:movedInsertionIndex(from,insertion.index,nodes.length);
+  const nodes=$$('#flowNodes .flow-node'),el=nodes.find(node=>node.dataset.node===insertion.targetId);if(!el&&!isFruitSorting()){clearDropTarget();return null;}
+  if(el){el.classList.add('drop-target');el.dataset.dropSide=insertion.side;el.dataset.dropAxis=insertion.axis;el.dataset.dropDirection=String(insertion.direction);}
+  const from=nodes.findIndex(node=>node.dataset.node===sourceId),offset=isFruitSorting()?1:0;
+  const index=from<0?insertion.index-offset:movedInsertionIndex(from+offset,insertion.index,nodes.length+2*offset)-offset;
   if(!dragPreview||dragPreview.index!==index||dragPreview.sourceId!==sourceId){
     const before=captureFlowLayout();stopFlowMotion();
     const slot=dragPreview?.slot||document.createElement('div');slot.className='snap-space';slot.setAttribute('aria-hidden','true');
@@ -419,7 +435,18 @@ $('#inspector').addEventListener('click',e=>{const type=e.target.dataset.edit;if
 $('#actionCards').addEventListener('click',e=>{if(Date.now()>=dragClickUntil&&e.target.closest('[data-action]'))toast('把操作卡拖到中间画布，就能添加。');});
 $('#chapters').addEventListener('click',e=>{const b=e.target.closest('[data-chapter]');if(b&&!state.session&&!state.running)changeChapter(Number(b.dataset.chapter));});
 $('#practiceTasks').addEventListener('click',e=>{const button=e.target.closest('[data-practice-task]');if(button)selectPracticeTask(button.dataset.practiceTask);});
-$('#chainButton').onclick=()=>{if(beforeEdit()){chain();changed();toast('已按步骤编号连接');}};
+function finishFlowFormation(){
+  clearTimeout(formationTimer);$('#flowCanvas').classList.remove('flow-forming');state.formingFlow=false;
+}
+function formFruitFlow(){
+  if(!isFruit()||!state.graph.nodes.some(n=>n.kind==='action')||!beforeEdit())return;
+  const before=captureFlowLayout();
+  chain({form:true});state.connecting=false;state.connectFrom=null;state.formingFlow=true;
+  changed();drawEdges();$('#flowCanvas').classList.add('flow-forming');animateFlowLayout(before);
+  const duration=matchMedia('(prefers-reduced-motion:reduce)').matches?0:Math.max(1250,750+state.graph.edges.length*75);
+  formationTimer=setTimeout(()=>{finishFlowFormation();updateControls();toast('已补齐开始、结束和流程箭头，可以运行了。');},duration);
+}
+$('#chainButton').onclick=()=>{if(isFruit()){formFruitFlow();return;}if(beforeEdit()){chain();changed();toast('已按步骤编号连接');}};
 $('#connectButton').onclick=()=>{state.connecting=!state.connecting;state.connectFrom=null;updateControls();toast(state.connecting?'依次点两个框，画出执行箭头':'已退出手动连线');};
 $('#undoButton').onclick=()=>{if(editable()&&state.undo.length){state.graph=state.undo.pop();state.selected=null;changed();}};
 $('#clearButton').onclick=()=>{if(beforeEdit()){state.graph=cleanGraph();chain();state.selected=null;changed();}};
@@ -475,7 +502,7 @@ async function selectPracticeTask(taskId){
 }
 
 async function changeChapter(ch,taskId=defaultTask(ch),{fromTeacher=false,transition=true}={}){
-  cancelCardDrag?.();
+  cancelCardDrag?.();finishFlowFormation();
   if($('#submitDialog').open)$('#submitDialog').close();
   if(!TASKS.some(t=>t.chapterId===ch&&t.id===taskId))taskId=defaultTask(ch);
   if(state.running||state.demo)await stopRun('interrupted','老师切换了章节');
@@ -506,6 +533,18 @@ function renderComparison(){
   $('#routesButton').onclick=()=>{world.setRoutes([{...routesFor(first),color:'#d89b4c',dashed:true,label:'首次'},{...routesFor(latest),color:'#3d8d80',label:'本次'}]);toast('虚线：首次路线；实线：本次路线。');};
 }
 async function waitToContinue(epoch){while((state.userPaused||state.teacherPaused)&&state.runEpoch===epoch)await new Promise(r=>setTimeout(r,70));return state.runEpoch===epoch;}
+async function showTerminalStep(epoch){
+  // Start/end have no map event; reserve visible playback time for their highlight.
+  // This is presentation time only and never changes task minutes or scores.
+  let remaining=600;
+  while(remaining>0){
+    if(!await waitToContinue(epoch))return false;
+    const start=performance.now();await new Promise(resolve=>setTimeout(resolve,32));
+    if(epoch!==state.runEpoch)return false;
+    if(!state.userPaused&&!state.teacherPaused)remaining-=performance.now()-start;
+  }
+  return true;
+}
 async function animateResult(result,{demo=false,graph=snapshot(),record=null}={}){
   const epoch=++state.runEpoch;state.demo=demo;state.userPaused=false;state.teacherPaused=!!state.session&&state.session.phase==='paused';state.activeNode=null;state.errorNode=null;
   const metrics={walk:0,handling:0,total:0};let current=copy(result.initialState);
@@ -514,6 +553,7 @@ async function animateResult(result,{demo=false,graph=snapshot(),record=null}={}
     if(!await waitToContinue(epoch))return false;state.activeNode=step.nodeId;renderGraph();
     revealNode(step.nodeId);
     $('#dialogueText').textContent=step.actionId==='start'?'从初始状态开始。':step.actionId==='end'?(isDelivery()?'已经执行到程序末尾。':'按照箭头，走到了结束框。'):`${demo?'师傅示范':'正在执行'}：${step.label||actionLabel(step)}`;
+    if(['start','end'].includes(step.actionId)&&!await showTerminalStep(epoch))return false;
     for(const event of step.events){
       if(!await waitToContinue(epoch))return false;
       const path=event.path||[];
@@ -549,6 +589,7 @@ function showResult(result){
 }
 async function startRun(){
   if(!editable())return;
+  if(isFruitSorting())return toast('先排好操作，再点“按排序形成流程图”。');
   state.graph=currentDeliveryDraft(state.graph);
   const graph=snapshot(),result=simulate(graph,{chapterId:state.chapter,taskId:state.taskId});
   const record={id:uid(),runId:null,chapterId:state.chapter,taskId:state.taskId,graph,executedNodes:[],status:'running',createdAt:Date.now(),result:null,valid:false};record.runId=record.id;
@@ -766,7 +807,7 @@ $('#selfRatingGroup').addEventListener('change',renderSelfRating);
 $('#submitButton').onclick=()=>{
   if(!editable()||submittingAssessment)return;
   $('#submitForm').reset();
-  $('#submitRatingGoal').textContent=`任务 ${state.chapter} · ${LEARNING_GOALS[state.chapter]}`;
+  $('#submitRatingGoal').textContent=`活动 ${state.chapter} · ${LEARNING_GOALS[state.chapter]}`;
   renderSelfRating();$('#submitDialog').showModal();
 };
 $('#submitForm').onsubmit=async e=>{

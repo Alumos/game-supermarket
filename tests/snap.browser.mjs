@@ -43,7 +43,7 @@ try{
       await db.set(`draft:practice:${chapter}:${task}`,{graph:engine.buildGraph([],{chapterId:chapter,taskId:task}),updatedAt:Date.now()});
       await db.set('last:practice',{chapter,taskId:task});
     },{chapter,task});
-    await page.goto(origin+'/');await page.locator('#flowNodes .terminal').last().waitFor();
+    await page.goto(origin+'/');await page.waitForFunction(()=>!document.querySelector('#submitButton').disabled);
     await page.locator('#transition').waitFor({state:'hidden'});await settled();
   }
   async function startDrag(source,{touch=false,grab='center'}={}){
@@ -100,9 +100,11 @@ try{
     return {axis,direction};
   }
   async function addAtEnd(source,options){
-    await page.locator('#flowNodes .terminal').last().scrollIntoViewIfNeeded();await motionSettled();
-    const before=await nodes().count(),end=await bounds(page.locator('#flowNodes .terminal').last()),drag=await startDrag(source,options);
-    await drag.move(align(drag,end,{fraction:.15}));await drag.finish();
+    const terminals=page.locator('#flowNodes .terminal'),hasTerminals=await terminals.count()>0;
+    const target=hasTerminals?terminals.last():await nodes().count()?nodes().last():page.locator('#flowScroll');
+    await target.scrollIntoViewIfNeeded();await motionSettled();
+    const before=await nodes().count(),end=await bounds(target),drag=await startDrag(source,options);
+    await drag.move(align(drag,end,{fraction:hasTerminals?.15:.9}));await drag.finish();
     assert.equal(await nodes().count(),before+1,'end drop adds one action');
   }
   async function undo(order){await page.locator('#undoButton').click();await settled();assert.deepEqual(await ids(),order,'undo restores exact order');}
@@ -213,6 +215,7 @@ try{
   const ordinaryPreview=await preview(order[0],'after');assert.equal(ordinaryPreview.axis,'y');
   await screenshot('ordinary-flowchart-snap');await drag.finish();
   const next=await ids();assert.equal(next.indexOf(order[0])+1,next.findIndex(id=>!order.includes(id)));
+  await page.locator('#chainButton').click();await page.waitForFunction(()=>!document.querySelector('#flowCanvas').classList.contains('flow-forming'));
   assert.equal(await page.locator('#flowEdges path[data-edge]').count(),12,'ordinary arrows remain connected');
   checks.push('fresh-juice: ordinary flowchart keeps vertical insertion and connected arrows');
 

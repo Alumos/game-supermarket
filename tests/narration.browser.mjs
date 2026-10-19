@@ -54,7 +54,8 @@ try{
   async function stored(key){return page.evaluate(async key=>(await import('/db.js')).get(key),key);}
   async function drag(action){
     await page.waitForFunction(()=>!document.querySelector('.layout-in-motion,.flow-shifting'));
-    const source=page.locator(`[data-action="${action}"]`),end=page.locator('#flowNodes .flow-node').last();
+    const source=page.locator(`[data-action="${action}"]`),cards=page.locator('#flowNodes .flow-node');
+    const end=await cards.count()?cards.last():page.locator('#flowScroll');
     const count=await page.locator('#flowNodes .flow-node').count();
     await source.scrollIntoViewIfNeeded();await end.scrollIntoViewIfNeeded();
     const a=await source.boundingBox(),b=await end.boundingBox();assert.ok(a&&b);
@@ -66,7 +67,7 @@ try{
     const chapter=page.locator(`#chapters [data-chapter="${task.chapterId}"]`);
     if(!(await chapter.getAttribute('class')).includes('active'))await chapter.click();
     if(task.chapterId===3)await page.locator(`[data-practice-task="${task.id}"]`).click();
-    await page.waitForFunction(()=>!document.querySelector('#runButton').disabled);
+    await page.waitForFunction(()=>!document.querySelector('#submitButton').disabled);
     if(task.chapterId===3)assert.equal(await page.locator(`[data-practice-task="${task.id}"]`).getAttribute('aria-pressed'),'true');
   }
   for(const task of TASKS.filter(task=>task.chapterId<4)){

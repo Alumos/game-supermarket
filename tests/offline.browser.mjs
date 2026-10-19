@@ -49,20 +49,20 @@ try{
  let before=await api(teacherContext,`/api/sessions/${session.id}/works`);assert.equal(before.runs.length,0);assert.equal(before.submissions.filter(s=>s.source==='student').length,0);assert.equal(before.drafts[0].graph.nodes.length,3);
  const ordering=[];
  student.on('response',r=>{const path=new URL(r.url()).pathname;if(path===`/api/sessions/${session.id}/state`||path.startsWith('/api/student/drafts/')||path==='/api/student/runs'||path==='/api/student/submissions')ordering.push({path,status:r.status()});});
- await studentContext.setOffline(false);await student.locator('#sceneTitle').filter({hasText:'水果'}).waitFor();assert.equal(await student.locator('#runButton').isDisabled(),true);assert.equal(await student.locator('#flowNodes .flow-node').count(),2);assert.equal((await api(studentContext,`/api/sessions/${session.id}/state`)).assignment.taskId,'fresh-juice');
+ await studentContext.setOffline(false);await student.locator('#sceneTitle').filter({hasText:'水果'}).waitFor();assert.equal(await student.locator('#runButton').isDisabled(),true);assert.equal(await student.locator('#flowNodes .flow-node').count(),0);assert.equal((await api(studentContext,`/api/sessions/${session.id}/state`)).assignment.taskId,'fresh-juice');
  const after=await poll(async()=>{const d=await api(teacherContext,`/api/sessions/${session.id}/works`);return d.runs.length&&d.submissions.some(s=>s.source==='student')?d:null;},'offline queue uploads after chapter alignment',30000);
  assert.equal(after.runs.length,1);assert.equal(after.runs[0].chapterId,1);assert.equal(after.runs[0].status,'failed');assert.equal(after.runs[0].valid,false);assert.equal(after.runs[0].offline,true);assert.equal(after.runs[0].graph.nodes.length,4);
  const draft=after.drafts.find(d=>d.chapterId===1);assert.equal(draft.graph.nodes.length,4);assert.ok(draft.graph.nodes.some(n=>n.label==='再搬一次，检查空柜'));assert.equal(after.drafts.filter(d=>d.chapterId===2).length,0);
  const sub=after.submissions.find(s=>s.source==='student');assert.equal(sub.chapterId,1);assert.equal(sub.offline,true);assert.deepEqual(sub.selfAssessment,{goalId:1,stars:1});
  const stateIndex=ordering.findIndex(x=>x.path.endsWith('/state')&&x.status===200),firstWrite=ordering.findIndex(x=>x.path.startsWith('/api/student/drafts/')&&x.status===200);assert.ok(stateIndex>=0&&firstWrite>stateIndex,JSON.stringify(ordering));
  // Reload restores the target classroom; the old graph remains historical, not chapter 2.
- await student.reload();await student.locator('#sceneTitle').filter({hasText:'水果'}).waitFor();assert.equal(await student.locator('#flowNodes .flow-node').count(),2);assert.equal(await student.locator('#runButton').isDisabled(),true);const restored=await api(studentContext,'/api/me');assert.equal(restored.learner.id,learnerId);
+ await student.reload();await student.locator('#sceneTitle').filter({hasText:'水果'}).waitFor();assert.equal(await student.locator('#flowNodes .flow-node').count(),0);assert.equal(await student.locator('#runButton').isDisabled(),true);const restored=await api(studentContext,'/api/me');assert.equal(restored.learner.id,learnerId);
  await api(teacherContext,'/api/teacher/feedback',{learnerId,chapterId:1,text:'你保留了离线尝试，下一次先检查来源柜有没有箱子。'});await student.locator('#historyButton').click();await student.locator('#historyDialog').waitFor({state:'visible'});assert.match(await student.locator('#historyList').textContent(),/下一次先检查来源柜/);assert.match(await student.locator('#historyList').textContent(),/需修改/);assert.deepEqual(errors,[]);
  // An upgrade must preserve obsolete transactions without blocking current work.
  await student.locator('#historyDialog .dialog-close').click();
  session=(await api(teacherContext,`/api/sessions/${session.id}/state`)).session;
  session=(await api(teacherContext,`/api/sessions/${session.id}/commands`,{commandId:'juice-after-upgrade',expectedVersion:session.version,action:'practice'})).session;
- await poll(()=>student.locator('#runButton').isEnabled(),'fruit station opened for migration check');
+ await poll(()=>student.locator('#submitButton').isEnabled(),'fruit station opened for migration check');
  await poll(()=>student.evaluate(async id=>(await (await import('/db.js')).get(`queue:${id}`,[])).length===0,learnerId),'earlier queue drained');
  const injected=await student.evaluate(async id=>{
   const db=await import('/db.js'),engine=await import('/shared/engine.mjs');

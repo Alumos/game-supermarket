@@ -39,7 +39,7 @@ try{
       await db.set(`draft:practice:${chapter}:${task}`,{graph:engine.buildGraph([],{chapterId:chapter,taskId:task}),updatedAt:Date.now()});
       await db.set('last:practice',{chapter,taskId:task});
     },{chapter,task});
-    await page.goto(origin+'/');await page.locator('#flowNodes .terminal').last().waitFor();
+    await page.goto(origin+'/');await page.waitForFunction(()=>!document.querySelector('#submitButton').disabled);
     await page.locator('#transition').waitFor({state:'hidden'});await settled();
   }
   async function bounds(selector){const box=await page.locator(selector).boundingBox();assert.ok(box,`${selector} is visible`);return {...box,right:box.x+box.width,bottom:box.y+box.height};}
@@ -210,6 +210,7 @@ try{
     const last=await nodes().last().boundingBox();
     await drag(nodes().first().locator('.node-number'),({card,offset})=>({x:last.x+(last.width-card.width*dragScale)/2+offset.x*dragScale,y:last.y+last.height-4+offset.y*dragScale-card.height*dragScale/2}));
     assert.deepEqual(await ids(),[order[1],order[0]],`${task}: ordinary flowchart reorders`);await undo(order);
+    if(chapter===2){await page.locator('#chainButton').click();await page.waitForFunction(()=>!document.querySelector('#flowCanvas').classList.contains('flow-forming'));}
     assert.equal(await page.locator('#flowEdges path[data-edge]').count(),3,`${task}: real arrows remain connected`);
     checks.push(`${task}: heading and near-edge add, blank-tool delete, same-canvas reorder, exact undo and arrows`);
     if(output&&task==='fresh-juice')await page.screenshot({path:join(output,'drag-ordinary-flowchart.png')});

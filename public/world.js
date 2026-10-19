@@ -1,4 +1,4 @@
-import { initialState, DELIVERY_MAP, TASKS, actionLabel } from '../shared/engine.mjs';
+import { initialState, DELIVERY_MAP, actionLabel } from '../shared/engine.mjs';
 
 // One source pixel is kept visible at every scale. All art is drawn locally;
 // classroom play needs no image host, font download, or rendering framework.
@@ -276,13 +276,6 @@ export class SupermarketWorld {
     this.r(239,319,165,37,'#c9b98b');this.r(246,322,151,27,'#e8d9b1');
     if(packed){this.r(291,297,51,51,'#f5e9c7');this.r(296,303,41,39,'#edb44c');this.r(288,294,57,8,'#46776c');this.r(310,278,5,19,'#e9d7a5');this.r(298,315,37,18,'#fff0d1');this.text('鲜橙汁',317,324,11,'#9d6f3b');this._sign('✓ 已打包',320,375,'#56897b',130);}
     else this.text('成品打包位',320,337,13,'#7c825e');
-    const completed=[washed,cut,loaded,blended,packed],steps=TASKS.find(task=>task.id==='fresh-juice').actions;
-    steps.forEach(({label},i)=>{
-      const x=92+i*114,done=completed[i],color=done?'#fff1d0':'#6d7968',chars=Array.from(label);
-      this.r(x-47,391,94,37,done?'#578675':'#d2ccac');this.text(done?'✓':String(i+1),x-35,409,12,color);
-      if(chars.length>4){this.text(chars.slice(0,4).join(''),x+8,402,12,color);this.text(chars.slice(4).join(''),x+8,416,12,color);}
-      else this.text(label,x+8,409,12,color);
-    });
   }
   _riceRoll(x,y,f={}){
     this.r(x-43,y-96,86,45,'#d6bf8d');for(let q=x-41;q<x+42;q+=4)this.r(q,y-93,1,38,'#b29162');

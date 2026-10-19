@@ -235,3 +235,17 @@ body{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 #submitDialog .rating-status{font-size:12px;min-height:23px;margin:16px 0 6px}
 .history-rating{color:#a77b22;font-size:23px;letter-spacing:3px}.history-rating b{font-size:13px;letter-spacing:0}
 @media(max-width:480px){#submitDialog{padding:26px 22px}#submitDialog h2{font-size:23px}.rating-options{gap:7px}.rating-options .rating-star{font-size:41px}}
+
+/* Fruit activity: arrange actions first, then reveal the flowchart structure. */
+.editor-tools .form-flow-button{background:#e6effb;color:#245583;border:1px solid #9bbbdc;font-weight:750}
+.editor-tools .form-flow-button:enabled{box-shadow:0 2px 0 #d0def0}
+.fruit-flow .flow-edge{pointer-events:none;cursor:default}
+.flow-forming .flow-node.terminal{animation:flow-terminal-in 280ms both;animation-delay:calc(var(--formation-order)*75ms)}
+.flow-forming .port{animation:flow-port-in 200ms both;animation-delay:calc(240ms + var(--formation-order)*75ms)}
+.flow-forming .flow-edge{stroke-dasharray:1;stroke-dashoffset:1;animation:flow-line-in 220ms ease-out both;animation-delay:calc(300ms + var(--formation-order)*75ms)}
+.flow-node.terminal.executing{border-color:#d4a248;background:#fff1cd;box-shadow:0 0 0 4px #e6c46a4d;animation:terminal-pulse 420ms ease-in-out infinite}
+@keyframes flow-terminal-in{from{opacity:0;scale:.88}to{opacity:1;scale:1}}
+@keyframes flow-port-in{from{opacity:0}to{opacity:1}}
+@keyframes flow-line-in{from{opacity:0;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes terminal-pulse{0%,100%{box-shadow:0 0 0 3px #e6c46a4d}50%{box-shadow:0 0 0 6px #e6c46a80}}
+@media(prefers-reduced-motion:reduce){.flow-forming .flow-node.terminal,.flow-forming .port,.flow-forming .flow-edge,.flow-node.terminal.executing{animation:none!important}.flow-forming .flow-edge{stroke-dashoffset:0}}

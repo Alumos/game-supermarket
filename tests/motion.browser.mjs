@@ -149,6 +149,7 @@ try{
     await record();await drag.move(align(drag,before[order[0]],{fraction:.85}));await preview('after');await idle();
     animated(await stop('ordinary-vertical'),before,await rects());await screenshot('ordinary-vertical-open');await drag.release();await clean();
     const next=await ids(),added=next.find(id=>!order.includes(id));assert.equal(next.indexOf(added),1);
+    await page.locator('#chainButton').click();await page.waitForFunction(()=>!document.querySelector('#flowCanvas').classList.contains('flow-forming'));
     const arrows=await page.locator('#flowEdges path[data-edge]').evaluateAll(paths=>paths.map(path=>{const m=path.getScreenCTM(),length=path.getTotalLength();const point=d=>{const p=path.getPointAtLength(d),s=new DOMPoint(p.x,p.y).matrixTransform(m);return {x:s.x,y:s.y};};return {length,start:point(0),end:point(length)};}));
     const boxes=await page.locator('#flowNodes .flow-node').evaluateAll(elements=>elements.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};}));
     assert.equal(arrows.length,12);

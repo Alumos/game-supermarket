@@ -57,7 +57,7 @@ try{
     await page.locator(`[data-chapter="${chapter}"]`).tap();
     await page.locator(`[data-chapter="${chapter}"].active`).waitFor();
     await page.locator('#transition').waitFor({state:'hidden'});
-    await poll(()=>page.locator('#runButton').isEnabled(),{label:`chapter ${chapter} editable`});
+    await poll(()=>page.locator('#submitButton').isEnabled(),{label:`chapter ${chapter} editable`});
   }
   async function mouseDrag(source,target){
     const box=await source.boundingBox();assert.ok(box,'drag source must be visible');
@@ -67,13 +67,15 @@ try{
   async function addAction(actionId){
     const before=await page.locator('#flowNodes .flow-node').count();
     const source=page.locator(`#actionCards [data-action="${actionId}"]`);
-    await source.scrollIntoViewIfNeeded();await page.locator('#flowNodes .flow-node.terminal').last().scrollIntoViewIfNeeded();
-    const end=await page.locator('#flowNodes .flow-node.terminal').last().boundingBox(),flow=await page.locator('#flowScroll').boundingBox();
+    const nodes=page.locator('#flowNodes .flow-node'),target=await nodes.count()?nodes.last():page.locator('#flowScroll');
+    await source.scrollIntoViewIfNeeded();await target.scrollIntoViewIfNeeded();
+    const end=await target.boundingBox(),flow=await page.locator('#flowScroll').boundingBox();
     assert.ok(end&&flow);
-    await mouseDrag(source,{x:end.x+end.width/2,y:Math.min(end.y+end.height/2,flow.y+flow.height-6)});
+    await mouseDrag(source,{x:end.x+end.width/2,y:Math.min(end.y+end.height*.9,flow.y+flow.height-6)});
     await poll(async()=>await page.locator('#flowNodes .flow-node').count()===before+1,{label:`mouse-dragged ${actionId}`});
   }
   async function finishRun({animated=false,pause=false,label='run'}={}){
+    if(await page.locator('#flowCanvas').evaluate(el=>el.classList.contains('fruit-sorting'))){await page.locator('#chainButton').tap();await page.waitForFunction(()=>!document.querySelector('#runButton').disabled);}
     const previous=(await savedRuns()).length;
     const fingerprints=new Set(),times=[];
     const initial=await canvasFingerprint();assert.ok(initial.painted>0&&initial.width>0&&initial.height>0);
@@ -125,10 +127,10 @@ try{
   checks.push('all five juice steps are added through the real toolbox and animate to completion');
 
   await chooseChapter(3);
-  await page.locator('#localTask').selectOption('rice-roll');
+  await page.locator('[data-practice-task="rice-roll"]').tap();
   await page.locator('#actionCards [data-action=seaweed]').waitFor();
-  assert.equal(await page.locator('#localTask').inputValue(),'rice-roll');
-  assert.deepEqual(await page.locator('#localTask option').evaluateAll(options=>options.map(option=>option.value)),['rice-roll','tea','plant','fish']);
+  assert.equal(await page.locator('[data-practice-task="rice-roll"]').getAttribute('aria-pressed'),'true');
+  assert.deepEqual(await page.locator('#practiceTasks [data-practice-task]').evaluateAll(options=>options.map(option=>option.dataset.practiceTask)),['rice-roll','tea','plant','fish']);
   assert.match(await page.locator('#taskGoal').textContent(),/切段装盒/);
   checks.push('rice-roll is available among the four chapter 3 practice jobs');
 
