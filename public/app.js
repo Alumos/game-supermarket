@@ -75,7 +75,7 @@ function renderChapter(){
   $('#structureHelp').textContent=delivery?'把移动积木依次拼接。每块沿横向或纵向道路直走；转弯要再加一块。途经地址会自动交付。点地图探路不计入成绩。':'圆角框表示开始和结束，方框写操作，箭头表示执行顺序。点地面探路不会改变任务结果。';
   $('#connectButton').hidden=delivery||isFruit();$('#chainButton').hidden=delivery;$('#chainButton').textContent=isFruit()?'按排序形成流程图':'按排列连线';$('#chainButton').classList.toggle('form-flow-button',isFruit());$('#demoButton').textContent=delivery?'看配送示范':'看师傅示范';
   $('#flowEmpty').innerHTML=delivery?'把右边的蓝色积木拖进来<br><small>先看坐标，再决定配送顺序</small>':isFruit()?'把右边的操作卡拖进来<br><small>先排好顺序，再点“按排序形成流程图”</small>':'从右边拖入一个操作<br><small>再调整顺序，连接成完整的流程图</small>';
-  $('#rules').innerHTML=delivery?'<p>六单在出发时全部取好，A、E含冷藏商品，D是普通饼干订单。必须优先留意送达时限。走一格1任务分钟，每单交付2分钟。到达时刻不超过时限才成功，越早送达奖励越多；超时变质会扣金币。</p><p>每块积木沿一条直路移动，转弯需要新的坐标积木。思考、动画快进和暂停不计任务时间。把六单都处理完，再比较用时与金币。</p>':`<p>${esc(t.description)}</p>`;
+  $('#rules').innerHTML=delivery?'<p>六单在出发时全部取好，A、E含冷藏商品，D是普通饼干订单。必须优先留意送达时限。走一格1任务分钟，每单交付2分钟。路旁的黄色标记表示慢行路段，每次经过额外增加标出的1～2分钟，往返都会计时。到达时刻不超过时限才成功，越早送达奖励越多；超时变质会扣金币。</p><p>每块积木沿一条直路移动，转弯需要新的坐标积木。思考、动画快进和暂停不计任务时间。把六单都处理完，再比较用时与金币。</p>':`<p>${esc(t.description)}</p>`;
   const actions=availableActions(state.chapter,state.taskId),mixed=actions.length>3?[actions[2],actions[0],actions[4],actions[1],actions[3]]:actions;
   $('#actionCards').innerHTML=mixed.filter(Boolean).map(a=>`<button class="action-card ${delivery?'block-palette':''}" data-action="${a.actionId}" data-palette-drag="${a.actionId}">${delivery?'⠿ 移动到（ , ）':`＋ ${esc(a.label)}`}</button>`).join('');
   $('#coordinateCards').innerHTML=delivery?deliveryDestinations().map(([id,point])=>`<button class="coordinate-card ${DELIVERY_MAP.orders.some(o=>o.point===id&&o.cold)?'cold-coordinate':''} ${/^[G-I]$/.test(id)?'waypoint-coordinate':''}" data-coordinate="${id}" data-palette-drag="move_to" data-x="${point.x}" data-y="${point.y}" aria-label="${esc(id)}${/^[G-I]$/.test(id)?'转弯点':''}（${point.x},${point.y}）"><b>${esc(id)}（${point.x},${point.y}）</b></button>`).join(''):'';
@@ -559,6 +559,7 @@ async function animateResult(result,{demo=false,graph=snapshot(),record=null}={}
     if(['start','end'].includes(step.actionId)&&!await showTerminalStep(epoch))return false;
     for(const event of step.events){
       if(!await waitToContinue(epoch))return false;
+      if(event.roadDelay)$('#dialogueText').textContent=`经过${event.roadDelay.name}路段，额外用时 ${event.roadDelay.minutes} 分钟。`;
       const path=event.path||[];
       if(event.type==='walk'&&path.length>1){
         for(let i=1;i<path.length;i++){
@@ -586,7 +587,7 @@ async function animateResult(result,{demo=false,graph=snapshot(),record=null}={}
 }
 function showResult(result){
   const el=$('#result'),delivery=isDelivery(),failed=result.metrics.failed||0;el.hidden=false;el.className=`result ${!result.completed||failed?'error':''}`;
-  el.innerHTML=result.completed?`<strong>${delivery?(failed?`配送结束，${failed}单超时`:'六单全部成功送达！'):'任务完成！'}</strong>${esc(delivery?`行走 ${result.metrics.walk} 分钟 + 交付 ${result.metrics.handling} 分钟 = ${result.metrics.total} 任务分钟，获得 ${result.metrics.coins} 金币。`:CHAPTERS[state.chapter-1].outro)}<br><button class="secondary" id="tryAgain">${delivery?'调整积木，再送一次':'调整流程，再试一次'}</button>`:`<strong>${delivery?'配送员在这里停住了':'小店员在这里停住了'}</strong>${esc(result.message||result.errors?.[0]?.message||'请检查步骤。')}<br><span>${delivery?'检查目标坐标；转弯处需要再加一块积木。':'修改标出的步骤或连线，再从开始运行。'}</span>`;
+  el.innerHTML=result.completed?`<strong>${delivery?(failed?`配送结束，${failed}单超时`:'六单全部成功送达！'):'任务完成！'}</strong>${esc(delivery?`行走与慢行 ${result.metrics.walk} 分钟 + 交付 ${result.metrics.handling} 分钟 = ${result.metrics.total} 任务分钟，获得 ${result.metrics.coins} 金币。`:CHAPTERS[state.chapter-1].outro)}<br><button class="secondary" id="tryAgain">${delivery?'调整积木，再送一次':'调整流程，再试一次'}</button>`:`<strong>${delivery?'配送员在这里停住了':'小店员在这里停住了'}</strong>${esc(result.message||result.errors?.[0]?.message||'请检查步骤。')}<br><span>${delivery?'检查目标坐标；转弯处需要再加一块积木。':'修改标出的步骤或连线，再从开始运行。'}</span>`;
   if($('#tryAgain'))$('#tryAgain').onclick=()=>{world.reset();resetMetrics();el.hidden=true;};$('#dialogueText').textContent=result.completed?(failed?'有订单超时变质了。改一改顺序，先送需要冷藏的商品。':CHAPTERS[state.chapter-1].outro):result.message;
   if(stackedLayout())requestAnimationFrame(()=>el.scrollIntoView({block:'nearest'}));
 }

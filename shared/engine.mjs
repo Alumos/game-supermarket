@@ -27,7 +27,7 @@ export const TASKS = freeze([
   {id:'tea',chapterId:3,name:'茶饮岗位',npc:'茶饮师傅',description:'用规定量的适温水制作一杯茶饮，浸泡后取出茶包。',goal:'完成茶饮，加盖贴签。',actions:cards([['cup','取杯放茶包'],['water','注入规定量适温水'],['steep','等待浸泡（快进）'],['remove_bag','取出茶包'],['lid','加盖贴签']])},
   {id:'plant',chapterId:3,name:'植物岗位',npc:'园艺师傅',description:'给植株上盆；填土后，浇水和放品名牌的先后可以交换。',goal:'栽好植株、按量浇水并放好品名牌。',actions:cards([['soil','盆底铺土'],['plant','放入带土根团'],['fill','填土轻压'],['water_plant','按规定量浇水'],['label_plant','放品名牌']])},
   {id:'fish',chapterId:3,name:'观赏鱼岗位',npc:'养护师傅',description:'领取一次用量鱼粮并打开投喂口后，才可以投喂；投喂后合盖和记录可交换。',goal:'完成一次投喂，关闭投喂口并做好记录。',actions:cards([['fishfood','领取一次用量鱼粮'],['open_feed','打开投喂口'],['feed','定点投喂'],['close_feed','合上投喂口'],['record_feed','记录投喂']])},
-  {id:'delivery',chapterId:4,name:'社区配送',npc:'配送站师傅',description:'沿道路配送六份订单，冷藏订单应优先送达；每格1分钟，每单交付2分钟。',goal:'处理六份订单，比较按时单数与金币收益。',actions:cards([['move_to','移动到坐标',{x:10,y:3}]])}
+  {id:'delivery',chapterId:4,name:'社区配送',npc:'配送站师傅',description:'沿道路配送六份订单，冷藏订单应优先送达；每格1分钟，每单交付2分钟。留意路旁标记，慢行路段额外增加1～2分钟。',goal:'处理六份订单，比较按时单数与金币收益。',actions:cards([['move_to','移动到坐标',{x:10,y:3}]])}
 ]);
 export const STOCK_MAP = freeze({
   points:{W:{x:10,y:13},J:{x:10,y:11},A:{x:6,y:11},B:{x:6,y:7},C:{x:14,y:11},D:{x:14,y:7}},
@@ -35,7 +35,8 @@ export const STOCK_MAP = freeze({
   items:{a:{id:'a',name:'橙汁箱',shelf:'A'},b:{id:'b',name:'饼干箱',shelf:'B'},c:{id:'c',name:'纸巾箱',shelf:'C'},d:{id:'d',name:'文具箱',shelf:'D'}},
   capacity:2,targetSeconds:60
 });
-export const DELIVERY_RULES_VERSION='split-cold-v2';
+export const DELIVERY_RULES_VERSION='roadside-v3';
+const SPLIT_DELIVERY_RULES_VERSION='split-cold-v2';
 const LEGACY_DELIVERY_RULES_VERSION='left-cold-v1';
 export const deliveryRulesVersion=value=>value?.deliveryRulesVersion??value?.graph?.deliveryRulesVersion??value?.result?.deliveryRulesVersion??LEGACY_DELIVERY_RULES_VERSION;
 export const DELIVERY_MAP = freeze({
@@ -45,19 +46,30 @@ export const DELIVERY_MAP = freeze({
   points:{W:{x:10,y:1},J0:{x:10,y:3},J1:{x:4,y:3},J2:{x:16,y:3},A:{x:4,y:7},B:{x:10,y:7},C:{x:16,y:7},D:{x:4,y:11},E:{x:10,y:11},F:{x:16,y:11},G:{x:4,y:3},H:{x:10,y:3},I:{x:16,y:3}},
   links:[['W','J0'],['J1','J0'],['J0','J2'],['A','B'],['B','C'],['D','E'],['E','F'],['J1','A'],['A','D'],['J0','B'],['B','E'],['J2','C'],['C','F']],
   orders:[
-    {id:'order-a',name:'鲜奶订单',point:'A',cold:true,deadline:26,baseReward:18,penalty:18},
+    {id:'order-a',name:'鲜奶订单',point:'A',cold:true,deadline:28,baseReward:18,penalty:18},
     {id:'order-b',name:'文具订单',point:'B',cold:false,deadline:50,baseReward:12,penalty:12},
     {id:'order-c',name:'纸巾订单',point:'C',cold:false,deadline:66,baseReward:12,penalty:12},
     {id:'order-d',name:'饼干订单',point:'D',cold:false,deadline:56,baseReward:12,penalty:12},
-    {id:'order-e',name:'酸奶订单',point:'E',cold:true,deadline:26,baseReward:18,penalty:18},
+    {id:'order-e',name:'酸奶订单',point:'E',cold:true,deadline:28,baseReward:18,penalty:18},
     {id:'order-f',name:'水果订单',point:'F',cold:false,deadline:62,baseReward:12,penalty:12}
+  ],
+  slowRoads:[
+    {id:'hospital',name:'医院慢行',from:{x:6,y:11},to:{x:7,y:11},minutes:1},
+    {id:'school',name:'学校慢行',from:{x:4,y:5},to:{x:4,y:6},minutes:1},
+    {id:'station',name:'车站人流',from:{x:16,y:5},to:{x:16,y:6},minutes:2},
+    {id:'signal',name:'红绿灯',from:{x:10,y:8},to:{x:10,y:9},minutes:1}
   ],
   timeUnit:'minutes',minutesPerCell:1,handlingMinutes:2,bonusEveryMinutes:4,
   // Legacy aliases retain the same task-time values; animation durations are unchanged.
   secondsPerCell:1,handlingSeconds:2,bonusEverySeconds:4
 });
 // Unmarked saved programs retain their original order rules for authoritative replay.
-const legacyDeliveryOrders=freeze(DELIVERY_MAP.orders.map(order=>({...order,...({A:{deadline:16},D:{name:'酸奶订单',cold:true,deadline:24,baseReward:18,penalty:18},E:{name:'饼干订单',cold:false,deadline:58,baseReward:12,penalty:12}}[order.point]||{})})));
+const splitDeliveryOrders=freeze(DELIVERY_MAP.orders.map(order=>({...order,...(order.cold?{deadline:26}:{})})));
+const legacyDeliveryOrders=freeze(splitDeliveryOrders.map(order=>({...order,...({A:{deadline:16},D:{name:'酸奶订单',cold:true,deadline:24,baseReward:18,penalty:18},E:{name:'饼干订单',cold:false,deadline:58,baseReward:12,penalty:12}}[order.point]||{})})));
+export function deliveryRoadDelay(from,to,rulesVersion=DELIVERY_RULES_VERSION){
+  if(rulesVersion!==DELIVERY_RULES_VERSION)return null;
+  return DELIVERY_MAP.slowRoads.find(road=>(same(from,road.from)&&same(to,road.to))||(same(from,road.to)&&same(to,road.from)))||null;
+}
 const deliveryCoordinateSystem=DELIVERY_MAP.coordinateSystem;
 const legacyDelivery=value=>value && typeof value === 'object' && !Array.isArray(value) && value.taskId === 'delivery' && value.deliveryCoordinates !== deliveryCoordinateSystem;
 const flippedPoint=value=>value && typeof value === 'object' && !Array.isArray(value) && Number.isFinite(value.y) ? {...value,y:DELIVERY_MAP.coordinateMaxY-value.y} : value;
@@ -112,7 +124,7 @@ export function initialState(chapterId=1,taskId,rulesVersion=DELIVERY_RULES_VERS
   if (!task) return null;
   const common = {chapterId,taskId:task.id,position:{x:10,y:13}};
   if (chapterId === 1) return {...common,slots:{A:'orange',B:'milk',C:null},holding:null};
-  if (chapterId === 4) return {...common,deliveryCoordinates:deliveryCoordinateSystem,deliveryRulesVersion:rulesVersion,timeUnit:'minutes',position:clone(DELIVERY_MAP.points.W),orders:(rulesVersion===DELIVERY_RULES_VERSION?DELIVERY_MAP.orders:legacyDeliveryOrders).map(order=>({...clone(order),status:'pending',arrivedAt:null})),coins:0,elapsed:0};
+  if (chapterId === 4) return {...common,deliveryCoordinates:deliveryCoordinateSystem,deliveryRulesVersion:rulesVersion,timeUnit:'minutes',position:clone(DELIVERY_MAP.points.W),orders:(rulesVersion===DELIVERY_RULES_VERSION?DELIVERY_MAP.orders:rulesVersion===SPLIT_DELIVERY_RULES_VERSION?splitDeliveryOrders:legacyDeliveryOrders).map(order=>({...clone(order),status:'pending',arrivedAt:null})),coins:0,elapsed:0};
   return {...common,flags:{}};
 }
 export function availableActions(chapterId=1,taskId) {
@@ -231,7 +243,7 @@ export function validateGraph(graph) {
   const errors=[],order=[];
   const error=(code,message,nodeId) => errors.push({...nodeId ? {nodeId} : {},message,code});
   if (!graph || typeof graph !== 'object' || Array.isArray(graph)) return {ok:false,errors:[{code:'GRAPH',message:'请先画出流程图。'}],order};
-  if (graph.taskId === 'delivery' && ![DELIVERY_RULES_VERSION,LEGACY_DELIVERY_RULES_VERSION].includes(deliveryRulesVersion(graph))) error('VERSION','配送规则版本不受支持，请使用当前任务版本。');
+  if (graph.taskId === 'delivery' && ![DELIVERY_RULES_VERSION,SPLIT_DELIVERY_RULES_VERSION,LEGACY_DELIVERY_RULES_VERSION].includes(deliveryRulesVersion(graph))) error('VERSION','配送规则版本不受支持，请使用当前任务版本。');
   if (graph.schemaVersion !== 1 || graph.contentVersion !== '1.0.0') error('VERSION','流程图版本不受支持，请使用当前任务版本。');
   if (!Number.isInteger(graph.revision) || graph.revision < 0) error('REVISION','流程图修订号必须是非负整数。');
   const task=taskFor(graph.chapterId,graph.taskId);
@@ -343,15 +355,18 @@ function simulateDelivery(graph,validation,first,result) {
       const movement=deliveryStraightPath(state.position,node.params);
       if (movement.message) return fail(nodeId,movement.message,'ROAD');
       let segment=[clone(state.position)];
-      const flushWalk=()=>{
+      const flushWalk=(roadDelay=null)=>{
         if (segment.length < 2) return;
-        const duration=(segment.length-1)*DELIVERY_MAP.minutesPerCell;
+        const duration=(segment.length-1)*DELIVERY_MAP.minutesPerCell+(roadDelay?.minutes||0);
         metrics.walk+=duration;
-        events.push({type:'walk',actionId,from:clone(segment[0]),to:clone(segment.at(-1)),path:clone(segment),duration,state:clone(state)});
+        events.push({type:'walk',actionId,from:clone(segment[0]),to:clone(segment.at(-1)),path:clone(segment),duration,...(roadDelay?{roadDelay:clone(roadDelay)}:{}),state:clone(state)});
         segment=[clone(state.position)];
       };
       for (const point of movement.path.slice(1)) {
-        state.position=clone(point);state.elapsed+=DELIVERY_MAP.minutesPerCell;segment.push(clone(point));
+        const roadDelay=deliveryRoadDelay(state.position,point,state.deliveryRulesVersion);
+        if(roadDelay)flushWalk();
+        state.position=clone(point);state.elapsed+=DELIVERY_MAP.minutesPerCell+(roadDelay?.minutes||0);segment.push(clone(point));
+        if(roadDelay)flushWalk(roadDelay);
         const order=state.orders.find(order=>order.status === 'pending' && same(DELIVERY_MAP.points[order.point],point));
         if (order) {
           flushWalk();

@@ -1,4 +1,4 @@
-import { initialState, DELIVERY_MAP, actionLabel } from '../shared/engine.mjs';
+import { initialState, DELIVERY_MAP, DELIVERY_RULES_VERSION, actionLabel } from '../shared/engine.mjs';
 
 // One source pixel is kept visible at every scale. All art is drawn locally;
 // classroom play needs no image host, font download, or rendering framework.
@@ -61,6 +61,7 @@ export class SupermarketWorld {
     return new Promise(resolve=>{
       this.anim={event:clone(event),points,length,elapsed:0,duration:Math.max(200,seconds*1000/Math.max(.25,Number(speed)||2)),resolve,applied:false,startElapsed:Number(this.state.elapsed)||0};
       this.actor.moving=event.type==='walk';
+      if(event.roadDelay)this.flash={text:`${event.roadDelay.name} · 额外 ${event.roadDelay.minutes} 分钟`,until:this.time+2};
       if(event.type==='walk'&&points.length)Object.assign(this.actor,points[0]);
       else this.flash={text:this._actionText(event),until:this.time+5};
     });
@@ -345,7 +346,58 @@ export class SupermarketWorld {
     this.shadow(x,y+24,92,12);this.r(x-40,y-16,80,43,'#496c5c');this.r(x-37,y-18,74,41,color);this.poly([[x-47,y-20],[x-36,y-39],[x+29,y-39],[x+46,y-20]],roof);this.r(x-43,y-20,86,5,'#526f5e');this.r(x-30,y-31,59,2,'#ffffff33');this.r(x-10,y-2,20,25,'#6d8774');this.r(x-6,y+1,12,19,'#a1b49a');
     for(const q of [-25,24]){this.r(x+q-7,y-9,15,16,'#597e75');this.r(x+q-5,y-7,11,12,'#c6dfc0');this.r(x+q,y-7,1,12,'#7a9c87');this.r(x+q-5,y-2,11,1,'#7a9c87');}
   }
+  _roadsideLandmarks(){
+    // Small landmarks occupy the lawns, leaving delivery points and roads clear.
+    this._communityBuilding(238,162,'hospital');
+    this._communityBuilding(226,289,'school');
+    this._communityBuilding(396,280,'station');
+    this._trafficLight(336,211);
+    this._trafficLight(456,313);
+    if(this.state.deliveryRulesVersion!==DELIVERY_RULES_VERSION)return;
+    const labels={hospital:{x:214,y:105},school:{x:116,y:285},station:{x:510,y:267},signal:{x:285,y:205}};
+    for(const road of DELIVERY_MAP.slowRoads){
+      const a=this._xy(road.from),b=this._xy(road.to),x=(a.x+b.x)/2,y=(a.y+b.y)/2;
+      // A narrow amber stripe marks only the affected piece of road.
+      if(a.y===b.y){this.r(x-3,y-9,2,18,'#e4c77e');this.r(x+2,y-9,2,18,'#e4c77e');}
+      else{this.r(x-9,y-3,18,2,'#e4c77e');this.r(x-9,y+2,18,2,'#e4c77e');}
+      const label=labels[road.id];this.text(`+${road.minutes}分`,label.x,label.y,11,'#866539','center','700',true);
+    }
+  }
+  _communityBuilding(x,y,type){
+    const hospital=type==='hospital',school=type==='school';
+    const wall=hospital?'#e8e6cc':school?'#dcc694':'#b6c9b9';
+    const roof=hospital?'#7a9a91':school?'#b27b58':'#5c8981';
+    this.shadow(x,y+17,79,8);
+    this.r(x-36,y-21,72,38,'#66816a');this.r(x-33,y-21,66,35,wall);
+    this.r(x-39,y-25,78,7,roof);this.r(x-36,y-24,72,2,'#ffffff44');
+    for(const dx of [-23,17]){
+      this.r(x+dx,y-13,12,15,'#6d948b');this.r(x+dx+2,y-11,8,10,'#d1e3c4');
+      this.r(x+dx+5,y-11,1,10,'#91b6a6');
+    }
+    this.r(x-7,y-3,14,17,'#5f8273');this.r(x-5,y-1,10,14,'#a9c6b3');
+    if(hospital){
+      this.r(x-4,y-18,8,4,'#bd6a60');this.r(x-2,y-20,4,8,'#bd6a60');
+    }else if(school){
+      this.r(x-2,y-17,5,5,'#f7edcf');this.r(x,y-16,1,3,'#8e7961');
+      this.r(x+27,y-42,2,17,'#7d8570');this.r(x+29,y-42,13,8,'#bd6a55');
+    }else{
+      // A little train and platform make the station readable without a large sign.
+      this.r(x-30,y-14,60,13,'#e7d9aa');this.r(x-26,y-11,10,6,'#6d948b');
+      this.r(x-11,y-11,10,6,'#6d948b');this.r(x+4,y-11,10,6,'#6d948b');
+      this.r(x+19,y-11,7,6,'#6d948b');this.r(x-31,y,62,3,'#b18558');
+    }
+    if(hospital)this.r(x-30,y+5,60,14,wall);
+    this.text(hospital?'医院':school?'学校':'火车站',x,y+(hospital?12:26),12,'#4f6b57','center','700',true);
+  }
+  _trafficLight(x,y){
+    this.r(x-2,y-23,4,23,'#647963');this.r(x-6,y-3,12,4,'#75866a');
+    this.r(x-7,y-46,14,25,'#425d52');this.r(x-5,y-44,10,21,'#314d46');
+    const red=Math.floor(this.time/4)%2===0;
+    this.r(x-3,y-42,6,5,red?'#df8068':'#7b5c50');
+    this.r(x-3,y-35,6,4,'#9c8f5c');this.r(x-3,y-29,6,5,red?'#536d56':'#a6c885');
+  }
   _delivery(){
+    this._roadsideLandmarks();
     const orders=this.state.orders||[];
     for(const id of ['A','B','C','D','E','F']){
       const node=NODES[id];if(!node)continue;const p=this._xy(node),order=orders.find(o=>o.point===id)||{},status=order.status||'pending';

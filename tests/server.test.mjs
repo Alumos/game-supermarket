@@ -66,7 +66,7 @@ test('60 learners remain balanced across four jobs; delivery failures and scores
   await send(`/api/student/drafts/${draftId}`,'PUT',{graph:long,baseRevision:2,mutationId:'long-48'},p.cookie);
   const over=structuredClone(long);over.nodes.push({id:'over',kind:'action',actionId:'move_to',params:{x:10,y:11}});const rejected=await fetch(base+`/api/student/drafts/${draftId}`,{method:'PUT',headers:{cookie:p.cookie,'content-type':'application/json'},body:JSON.stringify({graph:over,baseRevision:3,mutationId:'long-49'})});assert.equal(rejected.status,400);
   const csvResponse=await fetch(base+`/api/sessions/${session.id}/export?format=csv`,{headers:{cookie:teacher.cookie}});const csv=await csvResponse.text();assert.match(csv,/最佳金币/);assert.match(csv,/第四章首次分钟/);assert.match(csv,/第四章最佳收益方案分钟/);assert.doesNotMatch(csv,/第四章.*秒/);
-  const printable=await fetch(base+`/api/sessions/${session.id}/export?format=html&chapterId=4`,{headers:{cookie:teacher.cookie}});const html=await printable.text();assert.match(html,/class="blocks"/);assert.match(html,/金币/);assert.match(html,/48分钟/);assert.match(html,/时限（分钟）/);assert.match(html,/到达时间（分钟）/);assert.doesNotMatch(html,/秒/);assert.doesNotMatch(html,/class="arrow"/);
+  const printable=await fetch(base+`/api/sessions/${session.id}/export?format=html&chapterId=4`,{headers:{cookie:teacher.cookie}});const html=await printable.text();assert.match(html,/class="blocks"/);assert.match(html,/金币/);assert.match(html,/50分钟/);assert.match(html,/时限（分钟）/);assert.match(html,/到达时间（分钟）/);assert.doesNotMatch(html,/秒/);assert.doesNotMatch(html,/class="arrow"/);
   const own=await send('/api/student/works','GET',undefined,p.cookie);assert.equal(own.runs.length,3);assert.equal(own.runs[0].graph.revision,1);assert.equal(own.drafts[0].revision,3);assert.equal((await send(`/api/sessions/${session.id}/state`,'GET',undefined,p.cookie)).assignment.taskId,'delivery');
  }finally{await new Promise(r=>app.server.close(r));rmSync(dir,{recursive:true,force:true});}
 });
@@ -92,16 +92,16 @@ test('old offline delivery runs retain their scores and exports compare only the
    if(i===0){const strip=value=>{if(value&&typeof value==='object'){delete value.deliveryRulesVersion;for(const child of Object.values(value))strip(child);}};strip(trace);}
    await send(`/api/student/drafts/${draftId}`,'PUT',{graph,baseRevision:i,mutationId:'rules-'+i},student.cookie);
    const {run}=await send('/api/student/runs','POST',{runId:'rules-'+i,draftId,revision:i+1,graph,trace,executedNodes:result.trace.map(t=>t.nodeId),status:'completed',offline:i===0},student.cookie);
-   assert.equal(run.valid,true);assert.equal(run.metrics.coins,i===0?115:84);assert.equal(run.metrics.total,i===0?44:48);
+   assert.equal(run.valid,true);assert.equal(run.metrics.coins,i===0?115:83);assert.equal(run.metrics.total,i===0?44:49);
    if(i===0)assert.equal(run.graph.deliveryRulesVersion,undefined);
   }
   const exportPath=`/api/sessions/${session.id}/export?chapterId=4&format=`;
   const csv=await (await fetch(base+exportPath+'csv',{headers:{cookie:teacher.cookie}})).text();
   const row=csv.trim().split('\r\n').at(-1).slice(1,-1).split('","');
-  assert.equal(row[7],'48');assert.equal(row[8],'48');assert.equal(row[9],'48');
-  assert.deepEqual(row.slice(11,16),['84','84','84','5','1']);assert.equal(row[16],'A、E冷藏（当前）');
+  assert.equal(row[7],'49');assert.equal(row[8],'49');assert.equal(row[9],'49');
+  assert.deepEqual(row.slice(11,16),['83','83','83','5','1']);assert.equal(row[16],'A、E冷藏·慢行路段（当前）');
   const html=await (await fetch(base+exportPath+'html',{headers:{cookie:teacher.cookie}})).text();
-  assert.match(html,/最佳方案：84金币，48分钟/);assert.doesNotMatch(html,/最佳方案：115金币/);
+  assert.match(html,/最佳方案：83金币，49分钟/);assert.doesNotMatch(html,/最佳方案：115金币/);
   const own=await send('/api/student/works','GET',undefined,student.cookie);
   assert.equal(own.runs[0].metrics.coins,115);assert.equal(own.runs[0].graph.deliveryRulesVersion,undefined);
  }finally{await app.shutdown();rmSync(dir,{recursive:true,force:true});}
