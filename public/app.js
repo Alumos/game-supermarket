@@ -2,6 +2,7 @@ import {CHAPTERS,TASKS,LEARNING_GOALS,DELIVERY_MAP,DELIVERY_RULES_VERSION,delive
 import {SupermarketWorld} from './world.js';
 import * as db from './db.js';
 import {dragFootprint,dropZone,insertionAt,movedInsertionIndex} from './drag-drop.mjs';
+import {withRequestTimeout} from './request-timeout.mjs';
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-${Date.now().toString(36)}-${Array.from(globalThis.crypto?.getRandomValues?.(new Uint32Array(3))||[Math.random()*1e9,Math.random()*1e9]).map(n=>n.toString(36)).join('')}`, esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -29,11 +30,13 @@ function toast(message){$('#toast').textContent=message;$('#toast').hidden=false
 function storageError(e){$('#saveStatus').textContent=e.message||'设备存储不可用';$('#saveStatus').style.color='#ad6c43';toast(e.message||'设备存储不可用，请保留此页面');}
 async function safeSet(key,value){try{await db.set(key,value);return true;}catch(e){storageError(e);return false;}}
 async function api(path,options={}){
+  return withRequestTimeout(async signal=>{
   const learnerHeader=state.learner&&/^\/api\/student\/(ack|drafts|runs|submissions|works|task)(?:\/|$)/.test(path)?{'X-Supermarket-Learner':state.learner.id}:{};
-  let response;try{response=await fetch(path,{credentials:'same-origin',signal:AbortSignal.timeout(10000),...options,headers:{'Content-Type':'application/json','X-Supermarket-Role':'student',...learnerHeader,...options.headers},body:options.body===undefined?undefined:JSON.stringify(options.body)});}catch(e){state.online=false;renderConnection();throw e;}
+  let response;try{response=await fetch(path,{credentials:'same-origin',signal,...options,headers:{'Content-Type':'application/json','X-Supermarket-Role':'student',...learnerHeader,...options.headers},body:options.body===undefined?undefined:JSON.stringify(options.body)});}catch(e){state.online=false;renderConnection();throw e;}
   const data=await response.json().catch(()=>({}));
   if(!response.ok){const error=new Error(data.error||data.message||'请求未完成');Object.assign(error,{status:response.status,data});throw error;}
   state.online=true;renderConnection();return data;
+  });
 }
 function snapshot(){return copy(state.graph);}
 function chain({form=false}={}){
@@ -854,8 +857,10 @@ window.addEventListener('offline',()=>{state.online=false;renderConnection();ren
 window.addEventListener('beforeunload',()=>{try{const key=`supermarket-tab:${state.learner?.id}`,lease=JSON.parse(localStorage.getItem(key)||'null');if(lease?.id===identityToken)localStorage.removeItem(key);}catch{}if(state.graph&&(!teacherDemoRequested||state.teacherDemoMode))safeSet(graphKey(),{graph:snapshot(),updatedAt:Date.now()});});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&state.graph){persistNow();if(state.running)safeSet(`run:${scope()}:${state.running.id}`,state.running);}else syncCurrentClass().then(()=>alignRoom()).then(flushQueue).catch(()=>{});});
 async function teacherRequest(path,body){
-  const response=await fetch(path,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+  return withRequestTimeout(async signal=>{
+  const response=await fetch(path,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',signal,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
   const data=await response.json();if(!response.ok)throw new Error(data.error||'教师身份验证未完成');return data;
+  });
 }
 function showTeacherLogin(message=''){
   $('#teacherDemoError').textContent=message;$('#teacherDemoPassword').value='';

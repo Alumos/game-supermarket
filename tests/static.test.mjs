@@ -47,7 +47,7 @@ test('service worker precaches complete student shell and cleans only its own ol
   sw.stores.set('supermarket-shell-0.9.0',new Map());sw.stores.set('old-game-assets',new Map());
   await sw.lifecycle('install');await sw.lifecycle('activate');
   const records=sw.stores.get(cacheName);
-  assert.deepEqual([...records.keys()],['/','/index.html','/app.js','/app.css','/world.js','/db.js','/drag-drop.mjs','/shared/engine.mjs']);
+  assert.deepEqual([...records.keys()],['/','/index.html','/app.js','/app.css','/world.js','/db.js','/drag-drop.mjs','/request-timeout.mjs','/shared/engine.mjs']);
   assert.equal(sw.stores.has('supermarket-shell-0.9.0'),false);assert.equal(sw.stores.has('old-game-assets'),true);
   assert.equal(sw.skipped,true);assert.equal(sw.claimed,true);
 });
@@ -75,7 +75,7 @@ test('public dependencies use fresh network and fall back to cached modules offl
   assert.equal(await online.stores.get(cacheName).get('/app.js').clone().text(),'network');
   assert.equal(online.stores.get(cacheName).has('/app.js?v=2'),false);
   const offline=worker({offline:true});await offline.lifecycle('install');
-  for(const path of ['/app.js','/app.css','/world.js','/db.js','/drag-drop.mjs','/shared/engine.mjs'])assert.equal(await (await offline.request(path)).text(),'shell:'+path);
+  for(const path of ['/app.js','/app.css','/world.js','/db.js','/drag-drop.mjs','/request-timeout.mjs','/shared/engine.mjs'])assert.equal(await (await offline.request(path)).text(),'shell:'+path);
 });
 
 test('failed student navigation can use shell without caching the error response',async()=>{

@@ -11,13 +11,13 @@ VPS 需先安装 Docker Engine 和 Docker Compose v2，确保 `docker compose ve
 ```sh
 mkdir -p game-supermarket
 cd game-supermarket
-curl -fL https://raw.githubusercontent.com/Alumos/game-supermarket/v1.3.5/compose.yaml -o compose.yaml
+curl -fL https://raw.githubusercontent.com/Alumos/game-supermarket/v1.3.6/compose.yaml -o compose.yaml
 # 启动前配置 .env 中的 SUPERMARKET_TEACHER_PASSWORD（见下文）
 docker compose up -d
 docker compose ps
 ```
 
-默认会从 `ghcr.milu.moe/alumos/game-supermarket:v1.3.5` 拉取固定版本。安全组和防火墙放行 TCP 18790，然后打开：
+默认会从 `ghcr.milu.moe/alumos/game-supermarket:v1.3.6` 拉取固定版本。安全组和防火墙放行 TCP 18790，然后打开：
 
 - 教师入口：`http://你的VPS公网IP:18790/teacher.html`
 - 学生入口：`http://你的VPS公网IP:18790/`
@@ -61,7 +61,7 @@ SUPERMARKET_PUBLIC_URL=http://你的VPS公网IP:18790
 加速源暂不可用或刚发布尚未同步时，将 `.env` 中的镜像改为 GHCR 官方地址：
 
 ```dotenv
-SUPERMARKET_IMAGE=ghcr.io/alumos/game-supermarket:v1.3.5
+SUPERMARKET_IMAGE=ghcr.io/alumos/game-supermarket:v1.3.6
 ```
 
 然后执行：
@@ -132,18 +132,18 @@ location / {
 
 ## 发布新版本（维护者）
 
-GitHub Actions 配置位于 `.github/workflows/image.yml`。代码推送到仓库后，推送形如 `v1.3.5` 的正式版本标签即可触发：
+GitHub Actions 配置位于 `.github/workflows/image.yml`。代码推送到仓库后，推送形如 `v1.3.6` 的正式版本标签即可触发：
 
 ```sh
-git tag v1.3.5
-git push origin v1.3.5
+git tag v1.3.6
+git push origin v1.3.6
 ```
 
-工作流先在 Node.js 24 上执行 `npm test`，成功后构建 `linux/amd64` 和 `linux/arm64`，使用仓库的 `GITHUB_TOKEN` 向 GHCR 推送镜像。发布名称会自动转成小写，`v1.3.5` 对应：
+工作流先在 Node.js 24 上执行 `npm test`，成功后构建 `linux/amd64` 和 `linux/arm64`，使用仓库的 `GITHUB_TOKEN` 向 GHCR 推送镜像。发布名称会自动转成小写，`v1.3.6` 对应：
 
 ```text
-ghcr.io/alumos/game-supermarket:v1.3.5
-ghcr.io/alumos/game-supermarket:1.3.5
+ghcr.io/alumos/game-supermarket:v1.3.6
+ghcr.io/alumos/game-supermarket:1.3.6
 ghcr.io/alumos/game-supermarket:latest
 ```
 
@@ -151,7 +151,7 @@ ghcr.io/alumos/game-supermarket:latest
 
 以后发布新版本前同步更新 `compose.yaml` 的固定 tag 与本文示例，再推送新 tag。已经发布的 tag 应保持不变，修复使用新的版本号。VPS 更新时先备份，然后把 `.env` 中的 `SUPERMARKET_IMAGE` 改为新固定 tag。
 
-从 v1.3.0～v1.3.4 更新时只需将镜像 tag 改为 `v1.3.5`，保留原有密码和数据卷。若从 v1.2.0 或更早版本更新，还需在现有 Compose `environment` 中加入 `SUPERMARKET_TEACHER_PASSWORD: ${SUPERMARKET_TEACHER_PASSWORD:-}`（或换用本版本 Compose 文件并保留自己的端口等配置），在 `.env` 中设好密码，再执行：
+从 v1.3.0～v1.3.5 更新时只需将镜像 tag 改为 `v1.3.6`，保留原有密码和数据卷。若从 v1.2.0 或更早版本更新，还需在现有 Compose `environment` 中加入 `SUPERMARKET_TEACHER_PASSWORD: ${SUPERMARKET_TEACHER_PASSWORD:-}`（或换用本版本 Compose 文件并保留自己的端口等配置），在 `.env` 中设好密码，再执行：
 
 ```sh
 docker compose pull
