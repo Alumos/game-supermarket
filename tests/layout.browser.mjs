@@ -2,7 +2,7 @@
 // Fixtures seed fresh example drafts and reserve the real classroom-notice space.
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
-import {mkdtempSync,rmSync,existsSync,mkdirSync} from 'node:fs';
+import {mkdtempSync,rmSync,existsSync,mkdirSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {createClassroomServer} from '../server.mjs';
@@ -19,6 +19,16 @@ if(output)mkdirSync(output,{recursive:true});
 const cases=[{chapter:1,task:'drink-swap',steps:3},{chapter:2,task:'fresh-juice',steps:5},{chapter:3,task:'rice-roll',steps:5},{chapter:3,task:'tea',steps:5},{chapter:3,task:'plant',steps:5},{chapter:3,task:'fish',steps:5},{chapter:4,task:'delivery',steps:8}];
 const viewports=[{width:1440,height:900},{width:1366,height:768},{width:1280,height:720},{width:1180,height:820},{width:1024,height:768},{width:768,height:1024}];
 const results=[],errors=[];
+// Reproduce CSS rejection in Chromium 99. This does not replace Win7 hardware QA.
+const legacyCss=process.env.SUPERMARKET_LEGACY_LAYOUT==='1'||process.argv.includes('--legacy-css');
+function unsupportedCssRemoved(css){
+  return css.replace(/[\w-]+:[^;{}]*dvh[^;{}]*(?:;|(?=}))/g,'')
+    .replace(/([^{}]+)\{([^{}]*)\}/g,(rule,selector)=>selector.includes(':has(')?'':rule);
+}
+async function configureContext(context){
+  if(!legacyCss)return;
+  for(const file of ['app.css','teacher.css'])await context.route(`**/${file}`,route=>route.fulfill({status:200,contentType:'text/css',body:unsupportedCssRemoved(readFileSync(new URL('../public/'+file,import.meta.url),'utf8'))}));
+}
 let browser;
 try{
   server.listen(0,'127.0.0.1');await once(server,'listening');
@@ -26,6 +36,7 @@ try{
   browser=await playwright.chromium.launch({headless:true,...existsSync(chrome)?{executablePath:chrome}:{},args:['--no-sandbox']});
   for(const scenario of cases.filter(scenario=>!process.env.SUPERMARKET_LAYOUT_TASK||scenario.task===process.env.SUPERMARKET_LAYOUT_TASK)){
     const context=await browser.newContext({viewport:viewports[0],hasTouch:true});
+    await configureContext(context);
     const page=await context.newPage();page.on('pageerror',e=>errors.push(`${scenario.task}: ${e.message}`));
     await page.goto(origin+'/teacher.html');
     scenario.steps=await page.evaluate(async({chapter,task})=>{
@@ -248,8 +259,22 @@ try{
     assert.equal(await page.locator('#runButton').isEnabled(),true);
     await context.close();
   }
+  const teacherContext=await browser.newContext({viewport:viewports[0]});
+  await configureContext(teacherContext);
+  const teacher=await teacherContext.newPage();teacher.on('pageerror',error=>errors.push(error.message));
+  await teacher.goto(origin+'/teacher.html');await teacher.locator('#login-dialog').waitFor();
+  await teacher.locator('#key').fill('isolated-layout-test');await teacher.locator('#login-form button').click();
+  await teacher.locator('#login-dialog').waitFor({state:'hidden'});
+  for(const viewport of [viewports[0],viewports[4],viewports[5]]){
+    await teacher.setViewportSize(viewport);
+    const dimensions=await teacher.evaluate(()=>({height:document.body.getBoundingClientRect().height,shell:document.querySelector('.app-shell').getBoundingClientRect().height,footer:document.querySelector('.site-footer').getBoundingClientRect().bottom,viewport:innerHeight}));
+    assert.equal(dimensions.height,viewport.height,'teacher body fills viewport');
+    assert.ok(dimensions.shell>viewport.height*.8,'teacher workspace does not collapse');
+    assert.ok(Math.abs(dimensions.footer-dimensions.viewport)<=1,'teacher registration remains at viewport bottom');
+  }
+  await teacherContext.close();
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({ok:true,scenarios:new Set(results.map(result=>result.task)).size,layouts:results.length,results,pageErrors:errors},null,2));
+  console.log(JSON.stringify({ok:true,css:legacyCss?'Chromium 99 unsupported CSS removed':'native',scenarios:new Set(results.map(result=>result.task)).size,layouts:results.length,results,pageErrors:errors},null,2));
 }finally{
   await browser?.close();
   if(server.listening)await new Promise(resolve=>server.close(resolve));

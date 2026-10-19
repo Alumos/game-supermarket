@@ -113,7 +113,7 @@ function renderGraph(){
   $('#flowCanvas').classList.remove('program-canvas');
   $('#flowCanvas').classList.toggle('fruit-sorting',isFruitSorting());
   const nodes=isFruitSorting()?state.graph.nodes.filter(n=>n.kind==='action'):state.graph.nodes;$('#flowEmpty').hidden=nodes.some(n=>n.kind==='action');
-  $('#flowNodes').innerHTML=nodes.map((n,index)=>`<div class="flow-node ${n.kind!=='action'?'terminal':''} ${state.selected===n.id?'selected':''} ${state.activeNode===n.id?'executing':''} ${state.errorNode===n.id?'failed':''}" data-node="${n.id}" style="--formation-order:${index}" tabindex="0" role="button" aria-label="${esc(n.label||actionLabel(n.kind==='action'?n:{actionId:n.kind}))}">${!isFruitSorting()&&n.kind!=='start'?`<button class="port in" data-port="in" data-id="${n.id}" aria-label="连接到这一步"></button>`:''}${n.kind==='action'?`<span class="node-grip" data-grip="${n.id}" role="button" aria-label="拖动排序">⠿</span><div class="node-copy"><strong>${esc(n.label||actionLabel(n))}</strong>${n.label?`<small>${esc(actionLabel(n))}</small>`:''}</div><span class="node-number">${String(isFruitSorting()?index+1:index).padStart(2,'0')}</span>`:n.kind==='start'?'开始':'结束'}${!isFruitSorting()&&n.kind!=='end'?`<button class="port out" data-port="out" data-id="${n.id}" aria-label="从这一步连出"></button>`:''}</div>`).join('');
+  $('#flowNodes').innerHTML=nodes.map((n,index)=>`<div class="flow-node ${n.kind!=='action'?'terminal':''} ${state.selected===n.id?'selected':''} ${state.activeNode===n.id?'executing':''} ${state.errorNode===n.id?'failed':''}" data-node="${n.id}" style="--formation-order:${index}" tabindex="0" role="button" aria-label="${esc(n.label||actionLabel(n.kind==='action'?n:{actionId:n.kind}))}">${!isFruitSorting()&&n.kind!=='start'?`<button class="port in" data-port="in" data-id="${n.id}" aria-label="连接到这一步"></button>`:''}${n.kind==='action'?`<span class="node-grip" data-grip="${n.id}" role="button" aria-label="拖动排序">⠿</span><div class="node-copy ${n.label?'has-detail':''}"><strong>${esc(n.label||actionLabel(n))}</strong>${n.label?`<small>${esc(actionLabel(n))}</small>`:''}</div><span class="node-number">${String(isFruitSorting()?index+1:index).padStart(2,'0')}</span>`:n.kind==='start'?'开始':'结束'}${!isFruitSorting()&&n.kind!=='end'?`<button class="port out" data-port="out" data-id="${n.id}" aria-label="从这一步连出"></button>`:''}</div>`).join('');
   updateConnectionTargets();
   requestGraphLayout();renderInspector();
 }
@@ -260,7 +260,7 @@ function animateFlowLayout(before){
   follow();
 }
 function renderInspector(){
-  const n=state.graph?.nodes.find(n=>n.id===state.selected),el=$('#inspector');el.hidden=state.chapter===2||state.chapter===3||!n||n.kind!=='action';if(el.hidden){el.replaceChildren();return;}
+  const n=state.graph?.nodes.find(n=>n.id===state.selected),el=$('#inspector');el.hidden=state.chapter===2||state.chapter===3||!n||n.kind!=='action';$('.control-panel').classList.toggle('inspector-open',!el.hidden);if(el.hidden){el.replaceChildren();return;}
   const disabled=!editable()?'disabled':'';let params='';
   if(n.actionId==='move_crate')params=`<div class="inspector-row crate-params"><label for="crateFrom">搬出柜位<select id="crateFrom" data-param="from" ${disabled}>${['A','B','C'].map(v=>`<option ${n.params.from===v?'selected':''}>${v}</option>`).join('')}</select></label><label for="crateTo">→ 放入柜位<select id="crateTo" data-param="to" ${disabled}>${['A','B','C'].map(v=>`<option ${n.params.to===v?'selected':''}>${v}</option>`).join('')}</select></label></div>`;
   if(n.actionId==='move_to')params=`<div class="inspector-row"><label>地图位置</label><select data-destination ${disabled}><option value="">手动填写坐标</option>${deliveryDestinations().map(([id,p])=>`<option value="${id}" ${n.params?.x===p.x&&n.params?.y===p.y?'selected':''}>${id}（${p.x},${p.y}）</option>`).join('')}</select></div>`;
@@ -480,7 +480,7 @@ for(const area of [$('#flowNodes'),$('.control-panel')])area.addEventListener('d
 const world=new SupermarketWorld($('#world'),{onExplore:point=>{if(isDelivery())$('#dialogueText').textContent=`探路位置（${point.x},${point.y}）。上方的第二个数更大，转弯时把道路坐标填入积木。`;},onInteract:id=>{if(state.chapter===3&&TASKS.some(t=>t.chapterId===3&&t.id===id)){selectPracticeTask(id);return;}$('#dialogueText').textContent=isDelivery()?'先看冷藏订单的时限，再安排顺路配送。每块积木直走，转弯时再加坐标。':task().description;},onTarget:id=>{if(isDelivery()&&DELIVERY_MAP.points[id])addAction('move_to',{...DELIVERY_MAP.points[id]});else toast(`已选中${id}，请在步骤框内设置对应操作`);}});
 
 function renderPracticeTasks(){
-  const panel=$('#practiceTasks');panel.hidden=state.chapter!==3;
+  const panel=$('#practiceTasks');panel.hidden=state.chapter!==3;panel.parentElement.classList.toggle('practice-mode',!panel.hidden);
   panel.innerHTML=TASKS.filter(t=>t.chapterId===3).map(t=>`<button type="button" data-practice-task="${t.id}" aria-pressed="${t.id===state.taskId}" ${editable()?'':'disabled'}>${esc({'rice-roll':'饭卷',tea:'茶饮',plant:'绿植',fish:'观赏鱼'}[t.id])}</button>`).join('');
 }
 async function selectPracticeTask(taskId){
