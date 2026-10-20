@@ -70,7 +70,7 @@ export class GameAudio {
         const Audio = this.env.AudioContext || this.env.webkitAudioContext;
         this.context = new Audio();
         this.master = this.context.createGain();
-        this.master.gain.value = 0.30;
+        this.master.gain.value = 1.0;
         this.master.connect(this.context.destination);
         this.noise = this.context.createBuffer(1, Math.ceil(this.context.sampleRate * 0.35), this.context.sampleRate);
         const data = this.noise.getChannelData(0);
@@ -187,7 +187,7 @@ export class GameAudio {
     if (!this._canPlay() || this.context.currentTime - this.lastStep < .075) return;
     this.lastStep = this.context.currentTime;
     this._silence(this.uiOwner);
-    this._voice(this.uiOwner,{frequency:kind === 'end' ? 740 : kind === 'start' ? 520 : 620,end:kind === 'end' ? 880 : 680,length:.055,volume:.105});
+    this._voice(this.uiOwner,{frequency:kind === 'end' ? 740 : kind === 'start' ? 520 : 620,end:kind === 'end' ? 880 : 680,length:.055,volume:.18});
   }
 
   result(success) {
