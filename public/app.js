@@ -46,7 +46,12 @@ function chain({form=false}={}){
   state.graph.edges=state.graph.nodes.slice(1).map((n,i)=>({from:state.graph.nodes[i].id,to:n.id}));
 }
 function beforeEdit(){if(!editable())return false;state.undo.push(snapshot());if(state.undo.length>35)state.undo.shift();state.errorNode=null;state.activeNode=null;return true;}
-function changed(){renderGraph();scheduleSave();$('#result').hidden=true;updateControls();}
+function drinkSimulation(graph=state.graph){return simulate(graph,{chapterId:1,taskId:'drink-swap'});}
+function syncDrinkWorldFromGraph(graph=state.graph){
+  if(state.chapter!==1||!graph||!world)return null;
+  const result=drinkSimulation(graph);world.setState(result.finalState);return result;
+}
+function changed(){renderGraph();scheduleSave();$('#result').hidden=true;updateControls();if(state.chapter===1)syncDrinkWorldFromGraph();}
 function scheduleSave(){clearTimeout(saveTimer);const key=graphKey(),graph=snapshot();safeSet(key,{graph,updatedAt:Date.now()}).then(ok=>{if(ok)$('#saveStatus').textContent=state.submittedFingerprint&&state.submittedFingerprint!==fingerprint(graph)?'新草稿已保存 · 需重新提交':state.learner?'已存此设备 · 等待同步':'已保存在此设备';});saveTimer=setTimeout(()=>enqueue({kind:'draft',key,graph}),650);}
 async function persistNow({kind='draft',run,submission}={}){if(teacherDemoRequested&&!state.teacherDemoMode)return;clearTimeout(saveTimer);const key=graphKey(),graph=snapshot();await safeSet(key,{graph,updatedAt:Date.now()});return enqueue({kind,key,graph,run,submission});}
 
@@ -71,15 +76,15 @@ function renderChapter(){
   $('#taskGoal').textContent=t.goal;$('#metrics').hidden=!delivery;$('#deliveryOrders').hidden=!delivery;$('#coordinateTools').hidden=!delivery;
   renderPracticeTasks();
   $('#editorTitle').textContent=delivery?'我的配送程序':'安排我的工作';$('#runButton').textContent=delivery?'▶ 运行配送程序':'▶ 运行流程图';
-  $('#toolHint').textContent=delivery?'拖动蓝色积木到画布，按顺序拼接。':'把操作卡拖入画布；拖回工具区可以删除。';
-  $('#paletteHint').textContent=delivery?'拖动蓝色积木到画布':'拖动蓝色卡片到画布';
+  $('#toolHint').textContent=delivery?'拖动积木到画布，按顺序拼接。':state.chapter===1?'直接拖动地图中的饮料箱，流程图会自动记录。':'把操作卡拖入画布；拖回工具区可以删除。';
+  $('#paletteHint').textContent=delivery?'拖动积木到画布':state.chapter===1?'完成交换后，在这里思考':'拖动蓝色卡片到画布';
   $('#executionHint').textContent=delivery?'从上到下，依次执行配送积木':'按箭头顺序，一步一步执行';
   $('#structureHelp').textContent=delivery?'把移动积木依次拼接。每块沿横向或纵向道路直走；转弯要再加一块。途经地址会自动交付。点地图探路不计入成绩。':'圆角框表示开始和结束，方框写操作，箭头表示执行顺序。点地面探路不会改变任务结果。';
   $('#connectButton').hidden=delivery||isFruit();$('#chainButton').hidden=delivery;$('#chainButton').textContent=isFruit()?'按排序形成流程图':'按排列连线';$('#chainButton').classList.toggle('form-flow-button',isFruit());$('#demoButton').textContent=delivery?'看配送示范':'看师傅示范';
-  $('#flowEmpty').innerHTML=delivery?'把右边的蓝色积木拖进来<br><small>先看坐标，再决定配送顺序</small>':isFruit()?'把右边的操作卡拖进来<br><small>先排好顺序，再点“按排序形成流程图”</small>':'从右边拖入一个操作<br><small>再调整顺序，连接成完整的流程图</small>';
+  $('#flowEmpty').innerHTML=delivery?'把右边的积木拖进来<br><small>先看坐标，再决定配送顺序</small>':isFruit()?'把右边的操作卡拖进来<br><small>先排好顺序，再点“按排序形成流程图”</small>':state.chapter===1?'拖动地图中的饮料箱<br><small>每次交换都会自动生成一个步骤</small>':'从右边拖入一个操作<br><small>再调整顺序，连接成完整的流程图</small>';
   $('#rules').innerHTML=delivery?'<p>六单在出发时全部取好，A、E含冷藏商品，D是普通饼干订单。必须优先留意送达时限。走一格1任务分钟，每单交付2分钟。路旁的黄色标记表示慢行路段，每次经过额外增加标出的1～2分钟，往返都会计时。到达时刻不超过时限才成功，越早送达奖励越多；超时变质会扣金币。</p><p>每块积木沿一条直路移动，转弯需要新的坐标积木。思考、动画快进和暂停不计任务时间。把六单都处理完，再比较用时与金币。</p>':`<p>${esc(t.description)}</p>`;
   const actions=availableActions(state.chapter,state.taskId),mixed=actions.length>3?[actions[2],actions[0],actions[4],actions[1],actions[3]]:actions;
-  $('#actionCards').innerHTML=mixed.filter(Boolean).map(a=>`<button class="action-card ${delivery?'block-palette':''}" data-action="${a.actionId}" data-palette-drag="${a.actionId}">${delivery?'⠿ 移动至（ , ）':`＋ ${esc(a.label)}`}</button>`).join('');
+  $('#actionCards').innerHTML=state.chapter===1?`<div class="drink-questions" aria-label="饮料区思考问题"><p><b>想一想 1</b><br>有没有其他的移动方式可以完成饮品交换任务？</p><p><b>想一想 2</b><br>在确定的一种移动方式中，具体的步骤能不能随意调换顺序？</p></div>`:mixed.filter(Boolean).map(a=>`<button class="action-card ${delivery?'block-palette':''}" data-action="${a.actionId}" data-palette-drag="${a.actionId}">${delivery?'⠿ 移动至（ , ）':`＋ ${esc(a.label)}`}</button>`).join('');
   $('#coordinateCards').innerHTML=delivery?deliveryDestinations().map(([id,point])=>`<button class="coordinate-card ${DELIVERY_MAP.orders.some(o=>o.point===id&&o.cold)?'cold-coordinate':''} ${/^[G-I]$/.test(id)?'waypoint-coordinate':''}" data-coordinate="${id}" data-palette-drag="move_to" data-x="${point.x}" data-y="${point.y}" aria-label="移动至 ${esc(id)}（${point.x},${point.y}）${/^[G-I]$/.test(id)?'转弯点':''}"><b>移动至 ${esc(id)}（${point.x},${point.y}）</b></button>`).join(''):'';
   renderConnection();renderGraph();renderComparison();renderNotice();updateControls();
 }
@@ -103,7 +108,9 @@ function updateControls(){
   $$('.action-card').forEach(e=>e.disabled=!edit);$$('.chapter-tab').forEach(e=>e.disabled=!!state.session||running||state.joining||state.checkingClass);$('#pauseButton').disabled=!running||state.teacherPaused;$('#pauseButton').textContent=state.userPaused?'继续':'暂停';$('#stopButton').disabled=!running;$('#demoButton').disabled=running||state.tabBlocked||state.joining||state.checkingClass||state.switchingTask||state.classUnavailable||!!state.session&&['waiting','paused','ended'].includes(state.session.phase);
   $('#flowCanvas').classList.toggle('read-only',!edit);$('#connectButton').classList.toggle('active',state.connecting);$('#flowCanvas').classList.toggle('connecting',state.connecting);requestGraphLayout();
   updateConnectionTargets();
-  world.setMode(running?'run':allowed()?'explore':'locked');$('#mapHint').textContent=running?(state.demo?'正在观看示范':isDelivery()?'正在执行配送积木':'正在按流程图行动'):isDelivery()?'底部查坐标 · 点道路可探路':state.chapter===3?'点工作台选任务 · 各区作品分别保存':'点地面走动 · 点师傅听提示';
+  world.setMode(running?'run':allowed()?'explore':'locked');
+  world.setDrinkDragEnabled(state.chapter===1&&edit&&!running);
+  $('#mapHint').textContent=running?(state.demo?'正在观看示范':isDelivery()?'正在执行配送积木':'正在按流程图行动'):isDelivery()?'底部查坐标 · 点道路可探路':state.chapter===1?'拖动饮料箱完成交换':'点地面走动 · 点师傅听提示';
   $$('#coordinateCards button, #flowNodes input').forEach(el=>el.disabled=!edit);
   $('#chapters').querySelectorAll('button').forEach(b=>b.disabled=!!state.session||running||state.formingFlow||state.switchingTask||state.joining||state.checkingClass);
   renderInspector();
@@ -479,8 +486,17 @@ $('.control-panel').addEventListener('pointerdown',e=>{
   });
 });
 for(const area of [$('#flowNodes'),$('.control-panel')])area.addEventListener('dragstart',e=>{if(e.target.closest('.flow-node,[data-palette-drag]'))e.preventDefault();});
-const world=new SupermarketWorld($('#world'),{onExplore:point=>{if(isDelivery())$('#dialogueText').textContent=`探路位置（${point.x},${point.y}）。上方的第二个数更大，转弯时把道路坐标填入积木。`;},onInteract:id=>{if(state.chapter===3&&TASKS.some(t=>t.chapterId===3&&t.id===id)){selectPracticeTask(id);return;}$('#dialogueText').textContent=isDelivery()?'先看冷藏订单的时限，再安排顺路配送。每块积木直走，转弯时再加坐标。':task().description;},onTarget:id=>{if(isDelivery()&&DELIVERY_MAP.points[id])addAction('move_to',{...DELIVERY_MAP.points[id]});else toast(`已选中${id}，请在步骤框内设置对应操作`);}});
-
+let world;
+world=new SupermarketWorld($('#world'),{onExplore:point=>{if(isDelivery())$('#dialogueText').textContent=`探路位置（${point.x},${point.y}）。上方的第二个数更大，转弯时把道路坐标填入积木。`;},onInteract:id=>{if(state.chapter===3&&TASKS.some(t=>t.chapterId===3&&t.id===id)){selectPracticeTask(id);return;}$('#dialogueText').textContent=isDelivery()?'先看冷藏订单的时限，再安排顺路配送。每块积木直走，转弯时再加坐标。':task().description;},onDrinkMove:({from,to})=>{
+  if(state.chapter!==1||!editable())return;
+  const previous=snapshot(),id=addAction('move_crate',{from,to});
+  if(!id)return;
+  const result=drinkSimulation(state.graph),trace=result.trace.find(step=>step.nodeId===id);
+  if(!trace||trace.actionId!=='move_crate'||result.errorNodeId===id){
+    state.graph=previous;state.undo.pop();state.selected=null;changed();syncDrinkWorldFromGraph(previous);toast('这次搬运与前面的步骤冲突，流程图没有改变。');return;
+  }
+  syncDrinkWorldFromGraph(state.graph);$('#dialogueText').textContent=`已记录：把${from}柜饮料搬到${to}柜。继续完成交换。`;toast(`已自动加入步骤：${from} → ${to}`);
+},onDrinkDragFeedback:({message})=>toast(message),onTarget:id=>{if(isDelivery()&&DELIVERY_MAP.points[id])addAction('move_to',{...DELIVERY_MAP.points[id]});else toast(`已选中${id}，请在步骤框内设置对应操作`);}});
 function renderPracticeTasks(){
   const panel=$('#practiceTasks');panel.hidden=state.chapter!==3;panel.parentElement.classList.toggle('practice-mode',!panel.hidden);
   panel.innerHTML=TASKS.filter(t=>t.chapterId===3).map(t=>`<button type="button" data-practice-task="${t.id}" aria-pressed="${t.id===state.taskId}" ${editable()?'':'disabled'}>${esc({'rice-roll':'饭卷',tea:'茶饮',plant:'绿植',fish:'观赏鱼'}[t.id])}</button>`).join('');
@@ -517,7 +533,7 @@ async function changeChapter(ch,taskId=defaultTask(ch),{fromTeacher=false,transi
   const saved=await db.get(graphKey()).catch(()=>null);state.graph=currentDeliveryDraft(saved?.graph||cleanGraph());if(!saved)chain();
   else if(state.graph!==saved.graph)await safeSet(graphKey(),{...saved,graph:state.graph,updatedAt:Date.now()});
   state.submittedFingerprint=await db.get(`submitted:${graphKey()}`);
-  world.setChapter(ch,taskId);world.setState(initialState(ch,taskId));resetMetrics();$('#result').hidden=true;$('#comparison').hidden=true;$('#inspector').hidden=true;
+  world.setChapter(ch,taskId);world.setState(initialState(ch,taskId));if(ch===1)syncDrinkWorldFromGraph(state.graph);resetMetrics();$('#result').hidden=true;$('#comparison').hidden=true;$('#inspector').hidden=true;
   renderChapter();
   if(transition){const el=$('#transition');el.querySelector('strong').textContent=CHAPTERS[ch-1].title;el.querySelector('p').textContent=CHAPTERS[ch-1].subtitle;el.hidden=false;clearTimeout(transitionTimer);transitionTimer=setTimeout(()=>el.hidden=true,1100);}
   await safeSet(`last:${scope()}`,{chapter:ch,taskId});

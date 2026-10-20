@@ -35,7 +35,11 @@ export const STOCK_MAP = freeze({
   items:{a:{id:'a',name:'橙汁箱',shelf:'A'},b:{id:'b',name:'饼干箱',shelf:'B'},c:{id:'c',name:'纸巾箱',shelf:'C'},d:{id:'d',name:'文具箱',shelf:'D'}},
   capacity:2,targetSeconds:60
 });
-export const DELIVERY_RULES_VERSION='roadside-v3';
+// Current classroom rule set. Historical runs explicitly marked roadside-v3,
+// split-cold-v2, or left-cold-v1 continue to use their original orders and
+// deadlines below; changing the current version must never rewrite history.
+export const DELIVERY_RULES_VERSION='roadside-v4';
+export const DELIVERY_RULES_V3='roadside-v3';
 const SPLIT_DELIVERY_RULES_VERSION='split-cold-v2';
 const LEGACY_DELIVERY_RULES_VERSION='left-cold-v1';
 export const deliveryRulesVersion=value=>value?.deliveryRulesVersion??value?.graph?.deliveryRulesVersion??value?.result?.deliveryRulesVersion??LEGACY_DELIVERY_RULES_VERSION;
@@ -46,11 +50,11 @@ export const DELIVERY_MAP = freeze({
   points:{W:{x:10,y:1},J0:{x:10,y:3},J1:{x:4,y:3},J2:{x:16,y:3},A:{x:4,y:7},B:{x:10,y:7},C:{x:16,y:7},D:{x:4,y:11},E:{x:10,y:11},F:{x:16,y:11},G:{x:4,y:3},H:{x:10,y:3},I:{x:16,y:3}},
   links:[['W','J0'],['J1','J0'],['J0','J2'],['A','B'],['B','C'],['D','E'],['E','F'],['J1','A'],['A','D'],['J0','B'],['B','E'],['J2','C'],['C','F']],
   orders:[
-    {id:'order-a',name:'鲜奶订单',point:'A',cold:true,deadline:28,baseReward:18,penalty:18},
+    {id:'order-a',name:'鲜奶订单',point:'A',cold:true,deadline:30,baseReward:18,penalty:18},
     {id:'order-b',name:'文具订单',point:'B',cold:false,deadline:50,baseReward:12,penalty:12},
     {id:'order-c',name:'纸巾订单',point:'C',cold:false,deadline:66,baseReward:12,penalty:12},
     {id:'order-d',name:'饼干订单',point:'D',cold:false,deadline:56,baseReward:12,penalty:12},
-    {id:'order-e',name:'酸奶订单',point:'E',cold:true,deadline:28,baseReward:18,penalty:18},
+    {id:'order-e',name:'酸奶订单',point:'E',cold:true,deadline:30,baseReward:18,penalty:18},
     {id:'order-f',name:'水果订单',point:'F',cold:false,deadline:62,baseReward:12,penalty:12}
   ],
   slowRoads:[
@@ -63,11 +67,19 @@ export const DELIVERY_MAP = freeze({
   // Legacy aliases retain the same task-time values; animation durations are unchanged.
   secondsPerCell:1,handlingSeconds:2,bonusEverySeconds:4
 });
+const roadsideV3Orders=freeze([
+  {id:'order-a',name:'鲜奶订单',point:'A',cold:true,deadline:28,baseReward:18,penalty:18},
+  {id:'order-b',name:'文具订单',point:'B',cold:false,deadline:50,baseReward:12,penalty:12},
+  {id:'order-c',name:'纸巾订单',point:'C',cold:false,deadline:66,baseReward:12,penalty:12},
+  {id:'order-d',name:'饼干订单',point:'D',cold:false,deadline:56,baseReward:12,penalty:12},
+  {id:'order-e',name:'酸奶订单',point:'E',cold:true,deadline:28,baseReward:18,penalty:18},
+  {id:'order-f',name:'水果订单',point:'F',cold:false,deadline:62,baseReward:12,penalty:12}
+]);
 // Unmarked saved programs retain their original order rules for authoritative replay.
 const splitDeliveryOrders=freeze(DELIVERY_MAP.orders.map(order=>({...order,...(order.cold?{deadline:26}:{})})));
 const legacyDeliveryOrders=freeze(splitDeliveryOrders.map(order=>({...order,...({A:{deadline:16},D:{name:'酸奶订单',cold:true,deadline:24,baseReward:18,penalty:18},E:{name:'饼干订单',cold:false,deadline:58,baseReward:12,penalty:12}}[order.point]||{})})));
 export function deliveryRoadDelay(from,to,rulesVersion=DELIVERY_RULES_VERSION){
-  if(rulesVersion!==DELIVERY_RULES_VERSION)return null;
+  if(rulesVersion!==DELIVERY_RULES_VERSION && rulesVersion!==DELIVERY_RULES_V3)return null;
   return DELIVERY_MAP.slowRoads.find(road=>(same(from,road.from)&&same(to,road.to))||(same(from,road.to)&&same(to,road.from)))||null;
 }
 const deliveryCoordinateSystem=DELIVERY_MAP.coordinateSystem;
@@ -124,7 +136,10 @@ export function initialState(chapterId=1,taskId,rulesVersion=DELIVERY_RULES_VERS
   if (!task) return null;
   const common = {chapterId,taskId:task.id,position:{x:10,y:13}};
   if (chapterId === 1) return {...common,slots:{A:'orange',B:'milk',C:null},holding:null};
-  if (chapterId === 4) return {...common,deliveryCoordinates:deliveryCoordinateSystem,deliveryRulesVersion:rulesVersion,timeUnit:'minutes',position:clone(DELIVERY_MAP.points.W),orders:(rulesVersion===DELIVERY_RULES_VERSION?DELIVERY_MAP.orders:rulesVersion===SPLIT_DELIVERY_RULES_VERSION?splitDeliveryOrders:legacyDeliveryOrders).map(order=>({...clone(order),status:'pending',arrivedAt:null})),coins:0,elapsed:0};
+  if (chapterId === 4) {
+    const orders=rulesVersion===DELIVERY_RULES_VERSION?DELIVERY_MAP.orders:rulesVersion===DELIVERY_RULES_V3?roadsideV3Orders:rulesVersion===SPLIT_DELIVERY_RULES_VERSION?splitDeliveryOrders:legacyDeliveryOrders;
+    return {...common,deliveryCoordinates:deliveryCoordinateSystem,deliveryRulesVersion:rulesVersion,timeUnit:'minutes',position:clone(DELIVERY_MAP.points.W),orders:orders.map(order=>({...clone(order),status:'pending',arrivedAt:null})),coins:0,elapsed:0};
+  }
   return {...common,flags:{}};
 }
 export function availableActions(chapterId=1,taskId) {
@@ -243,7 +258,7 @@ export function validateGraph(graph) {
   const errors=[],order=[];
   const error=(code,message,nodeId) => errors.push({...nodeId ? {nodeId} : {},message,code});
   if (!graph || typeof graph !== 'object' || Array.isArray(graph)) return {ok:false,errors:[{code:'GRAPH',message:'请先画出流程图。'}],order};
-  if (graph.taskId === 'delivery' && ![DELIVERY_RULES_VERSION,SPLIT_DELIVERY_RULES_VERSION,LEGACY_DELIVERY_RULES_VERSION].includes(deliveryRulesVersion(graph))) error('VERSION','配送规则版本不受支持，请使用当前任务版本。');
+  if (graph.taskId === 'delivery' && ![DELIVERY_RULES_VERSION,DELIVERY_RULES_V3,SPLIT_DELIVERY_RULES_VERSION,LEGACY_DELIVERY_RULES_VERSION].includes(deliveryRulesVersion(graph))) error('VERSION','配送规则版本不受支持，请使用当前任务版本。');
   if (graph.schemaVersion !== 1 || graph.contentVersion !== '1.0.0') error('VERSION','流程图版本不受支持，请使用当前任务版本。');
   if (!Number.isInteger(graph.revision) || graph.revision < 0) error('REVISION','流程图修订号必须是非负整数。');
   const task=taskFor(graph.chapterId,graph.taskId);
@@ -468,7 +483,10 @@ export function exampleGraph(chapterId=1,taskId,variant='best') {
     const alternate=['alternate','alternative','reverse'].includes(variant);
     actions=(alternate ? [['B','C'],['A','B'],['C','A']] : [['A','C'],['B','A'],['C','B']]).map(([from,to])=>({actionId:'move_crate',params:{from,to}}));
   } else if (chapterId === 4) {
-    const points=['cross','bad','alternate','alternative','reverse'].includes(variant) ? ['H','B','E','F','C','B','A','D'] : ['good','demo'].includes(variant) ? ['H','G','A','D','E','B','C','F'] : ['H','B','E','D','A','B','C','F'];
+    // v4's reference route visits each address once and keeps both cold
+    // orders inside their 30-minute windows. The older examples remain useful
+    // as a slower success and a clear late-A comparison.
+    const points=['cross','bad','alternate','alternative','reverse'].includes(variant) ? ['H','B','E','F','C','B','A','D'] : ['good','demo'].includes(variant) ? ['H','B','E','D','A','B','C','F'] : ['H','B','A','D','E','F','C'];
     actions=points.map(point=>({actionId:'move_to',params:clone(DELIVERY_MAP.points[point])}));
   } else {
     actions=task.actions.map(a=>({actionId:a.actionId}));

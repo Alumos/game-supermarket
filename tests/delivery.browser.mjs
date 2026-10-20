@@ -244,35 +244,35 @@ try{
   }
   const best=await finishRun({animated:true,pause:true,label:'touch-drag best delivery'});
   assert.deepEqual(best.graph.nodes.filter(node=>node.kind==='action').map(node=>node.params),exampleGraph(4).nodes.filter(node=>node.kind==='action').map(node=>node.params));
-  assert.deepEqual(best.metrics,{walk:38,handling:12,total:50,onTime:true,coins:115,delivered:6,failed:0});
-  assert.equal(await page.locator('#timeValue').textContent(),'50');assert.equal(await page.locator('#coinsValue').textContent(),'115');
+  assert.deepEqual(best.metrics,{walk:33,handling:12,total:45,onTime:true,coins:119,delivered:6,failed:0});
+  assert.equal(await page.locator('#timeValue').textContent(),'45');assert.equal(await page.locator('#coinsValue').textContent(),'119');
   assert.equal(await page.locator('#deliveredValue').textContent(),'6 / 6');assert.equal(await page.locator('#failedValue').textContent(),'0');
-  assert.equal(await page.locator('#deliveryOrders .delivered').count(),6);assert.match(await page.locator('#result').textContent(),/50[\s\S]*分钟/);assert.match(await page.locator('#deliveryOrders').textContent(),/28分钟/);assert.doesNotMatch(await page.locator('#deliveryOrders').textContent(),/秒/);assert.match(await page.locator('#result').textContent(),/六单全部成功送达/);
-  checks.push('eight real touch drags plus inline coordinate edits create the best route; pause freezes time; delivery animates to 50 minutes, 115 coins, six successes');
+  assert.equal(await page.locator('#deliveryOrders .delivered').count(),6);assert.match(await page.locator('#result').textContent(),/45[\s\S]*分钟/);assert.match(await page.locator('#deliveryOrders').textContent(),/30分钟/);assert.doesNotMatch(await page.locator('#deliveryOrders').textContent(),/秒/);assert.match(await page.locator('#result').textContent(),/六单全部成功送达/);
+  checks.push('seven real touch drags plus inline coordinate edits create the best route; pause freezes time; delivery animates to 45 minutes, 119 coins, six successes');
   if(output)await page.screenshot({path:join(output,'delivery-best.png')});
 
   await page.locator('#clearButton').tap();assert.equal(await page.locator('#flowNodes .program-block').count(),2);
   for(const node of exampleGraph(4,'delivery','bad').nodes.filter(node=>node.kind==='action'))await dragCoordinate(coordinateFor(node.params));
   const bad=await finishRun({animated:true,label:'touch-dragged late-cold-orders delivery'});
   assert.equal(bad.valid,true);assert.equal(bad.status,'completed');
-  assert.deepEqual(bad.metrics,{walk:37,handling:12,total:49,onTime:false,coins:83,delivered:5,failed:1});
-  assert.equal(await page.locator('#timeValue').textContent(),'49');assert.equal(await page.locator('#coinsValue').textContent(),'83');
+  assert.deepEqual(bad.metrics,{walk:37,handling:12,total:49,onTime:false,coins:84,delivered:5,failed:1});
+  assert.equal(await page.locator('#timeValue').textContent(),'49');assert.equal(await page.locator('#coinsValue').textContent(),'84');
   assert.equal(await page.locator('#deliveredValue').textContent(),'5 / 6');assert.equal(await page.locator('#failedValue').textContent(),'1');
   assert.equal(await page.locator('#deliveryOrders .spoiled').count(),1);assert.equal(await page.locator('#deliveryOrders .delivered').count(),5);
   assert.match(await page.locator('#result.error').textContent(),/1单超时/);
-  assert.match(await page.locator('#comparison').textContent(),/首次[\s\S]*115[\s\S]*本次[\s\S]*83[\s\S]*最好[\s\S]*115/);
-  assert.match(await page.locator('#comparison').textContent(),/金币减少 32/);
+  assert.match(await page.locator('#comparison').textContent(),/首次[\s\S]*119[\s\S]*本次[\s\S]*84[\s\S]*最好[\s\S]*119/);
+  assert.match(await page.locator('#comparison').textContent(),/金币减少 35/);
   await page.locator('#routesButton').tap();
-  checks.push('clearing and dragging coordinates creates the late route; A is late, score is 83, and comparison preserves the 115-coin first/best route');
+  checks.push('clearing and dragging coordinates creates the late route; A is late, score is 84, and comparison preserves the 119-coin first/best route');
   if(output)await page.screenshot({path:join(output,'delivery-bad-comparison.png')});
 
   const deliveryRuns=(await savedRuns()).filter(run=>run.taskId==='delivery');
   assert.equal(deliveryRuns.length,2);assert.ok(deliveryRuns.every(run=>run.valid&&run.status==='completed'));
-  assert.deepEqual(deliveryRuns.map(run=>[run.metrics.total,run.metrics.coins,run.metrics.failed]),[[50,115,0],[49,83,1]]);
+  assert.deepEqual(deliveryRuns.map(run=>[run.metrics.total,run.metrics.coins,run.metrics.failed]),[[45,119,0],[49,84,1]]);
   assert.deepEqual(deliveryRuns[0].graph,best.graph,'second run must not mutate the first saved program');
   await page.locator('#historyButton').tap();await page.locator('#historyDialog').waitFor({state:'visible'});
   const history=await page.locator('#historyList').textContent();
-  assert.match(history,/用时50分钟/);assert.match(history,/社区配送[\s\S]*完成 · 有订单失败/);assert.match(history,/金币83，失败1单/);assert.match(history,/金币115，失败0单/);assert.match(history,/鲜榨橙汁/);
+  assert.match(history,/用时45分钟/);assert.match(history,/社区配送[\s\S]*完成 · 有订单失败/);assert.match(history,/金币84，失败1单/);assert.match(history,/金币119，失败0单/);assert.match(history,/鲜榨橙汁/);
   assert.equal(await page.locator('#historyList [data-history]').count(),4);
   await page.locator('#historyList [data-history]').first().tap();assert.match(await page.locator('#historyList').textContent(),/移动到/);
   await page.locator('#historyDialog .dialog-close').tap();
@@ -312,14 +312,15 @@ try{
   assert.equal(legacyBefore.metrics.coins,115);
   await page.reload();await page.locator('#transition').waitFor({state:'hidden'});
   await poll(()=>page.locator('#runButton').isEnabled(),{label:'upgraded legacy draft loaded'});
-  assert.match(await page.locator('#comparison').textContent(),/首次[\s\S]*115[\s\S]*本次[\s\S]*83[\s\S]*最好[\s\S]*115/);
+  await poll(()=>page.locator('#comparison').textContent().then(text=>text.includes('首次')),{label:'current-rule comparison restored'});
+  assert.match(await page.locator('#comparison').textContent(),/首次[\s\S]*119[\s\S]*本次[\s\S]*84[\s\S]*最好[\s\S]*119/);
   assert.doesNotMatch(await page.locator('#comparison').textContent(),/44分钟/);
   const upgraded=await page.evaluate(async()=>{const db=await import('/db.js');return (await db.get('draft:practice:4:delivery')).graph;});
-  assert.equal(upgraded.deliveryRulesVersion,'roadside-v3');
+  assert.equal(upgraded.deliveryRulesVersion,'roadside-v4');
   await page.locator('#historyButton').tap();await page.locator('[data-restore="legacy-rule-acceptance"]').tap();
   await page.waitForTimeout(800);
   const afterRestore=await page.evaluate(async()=>{const db=await import('/db.js');return {run:await db.get('run:practice:legacy-rule-acceptance'),graph:(await db.get('draft:practice:4:delivery')).graph};});
-  assert.deepEqual(afterRestore.run,legacyBefore);assert.equal(afterRestore.graph.deliveryRulesVersion,'roadside-v3');
+  assert.deepEqual(afterRestore.run,legacyBefore);assert.equal(afterRestore.graph.deliveryRulesVersion,'roadside-v4');
   assert.deepEqual(afterRestore.graph.nodes,legacyBefore.graph.nodes);
   checks.push('legacy draft loads/restores with current rules; old 115-coin history remains byte-for-byte unchanged and is excluded from current-rule comparison');
 

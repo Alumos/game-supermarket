@@ -14,10 +14,10 @@ const NODES = DELIVERY_MAP.points;
 const WORK_POINTS = {'rice-roll':{x:3,y:9},tea:{x:8,y:9},plant:{x:13,y:9},fish:{x:18,y:9}};
 
 export class SupermarketWorld {
-  constructor(container,{onTarget,onInteract,onExplore}={}) {
+  constructor(container,{onTarget,onInteract,onExplore,onDrinkMove,onDrinkDragFeedback}={}) {
     if (typeof container==='string') container=document.querySelector(container);
     if (!container) throw new Error('Scene container required');
-    this.container=container; this.callbacks={onTarget,onInteract,onExplore};
+    this.container=container; this.callbacks={onTarget,onInteract,onExplore,onDrinkMove,onDrinkDragFeedback};
     this.canvas=document.createElement('canvas'); this.canvas.className='supermarket-canvas';
     this.canvas.setAttribute('aria-label','超市像素地图，可点地面探路、点人物交谈');
     this.canvas.setAttribute('role','img'); this.canvas.tabIndex=0;
@@ -26,15 +26,18 @@ export class SupermarketWorld {
     this.buffer=document.createElement('canvas'); this.buffer.width=WIDTH;this.buffer.height=HEIGHT;
     this.g=this.buffer.getContext('2d',{alpha:false});this.g.imageSmoothingEnabled=false;
     this.chapterId=1;this.taskId='drink-swap';this.mode='explore';this.routes=[];this.targets=[];this.trail=[];
+    // Drink dragging is an opt-in intent surface. The world never changes
+    // state.slots itself; app.js receives the move and writes back simulation.
+    this.drinkDragEnabled=false;this.drinkDrag=null;
     this.actor={x:10,y:13,face:'up',walk:0,moving:false};this.anim=null;this.paused=false;this.time=0;this.destroyed=false;
-    this.pointerHandler=e=>this._pointer(e);this.keyHandler=e=>this._key(e);
-    this.canvas.addEventListener('pointerdown',this.pointerHandler);window.addEventListener('keydown',this.keyHandler);
+    this.pointerHandler=e=>this._pointer(e);this.pointerMoveHandler=e=>this._drinkPointerMove(e);this.pointerUpHandler=e=>this._drinkPointerEnd(e);this.pointerCancelHandler=e=>this._drinkPointerEnd(e,true);this.keyHandler=e=>this._key(e);
+    this.canvas.addEventListener('pointerdown',this.pointerHandler);this.canvas.addEventListener('pointermove',this.pointerMoveHandler);this.canvas.addEventListener('pointerup',this.pointerUpHandler);this.canvas.addEventListener('pointercancel',this.pointerCancelHandler);window.addEventListener('keydown',this.keyHandler);
     this.resizeObserver=new ResizeObserver(()=>this._resize());this.resizeObserver.observe(container);
     this.setChapter(1,'drink-swap');this._resize();
     this.last=performance.now();this._frame=this._frame.bind(this);this.raf=requestAnimationFrame(this._frame);
   }
   setChapter(chapterId,taskId) {
-    this.stop();this.chapterId=Number(chapterId)||1;
+    this.cancelDrinkDrag();this.stop();this.drinkDragEnabled=false;this.canvas.style.touchAction='manipulation';this.chapterId=Number(chapterId)||1;
     this.taskId=taskId||['','drink-swap','fresh-juice','tea','delivery'][this.chapterId];
     this.state=clone(initialState(this.chapterId,this.taskId));this.initial=clone(this.state);
     Object.assign(this.actor,this.state.position||{x:10,y:13},{moving:false,face:'up',walk:0});
@@ -44,14 +47,25 @@ export class SupermarketWorld {
     if(!state)return;this.state=clone(state);
     if(state.position&&!this.anim)Object.assign(this.actor,state.position);
   }
-  setMode(mode){this.mode=mode||'explore';if(this.mode!=='explore'&&this.anim?.manual)this.stop();}
+  setMode(mode){this.mode=mode||'explore';if(this.mode!=='explore'){this.cancelDrinkDrag();this.drinkDragEnabled=false;this.canvas.style.touchAction='manipulation';if(this.anim?.manual)this.stop();}}
+  setDrinkDragEnabled(enabled){
+    this.drinkDragEnabled=Boolean(enabled)&&this.chapterId===1&&this.mode==='explore'&&!this.paused;
+    this.canvas.style.touchAction=this.drinkDragEnabled?'none':'manipulation';
+    if(!this.drinkDragEnabled)this.cancelDrinkDrag();
+    return this.drinkDragEnabled;
+  }
   setRoutes(routes){this.routes=Array.isArray(routes)?clone(routes):[];}
   setSelectTargets(targets){this.targets=Array.isArray(targets)?targets.map(t=>typeof t==='string'?t:t.id||t.value||t.target):[];}
-  pause(){this.paused=true;gameAudio.pauseEvent(this);}
+  pause(){this.cancelDrinkDrag();this.paused=true;gameAudio.pauseEvent(this);}
   resume(){this.paused=false;this.last=performance.now();gameAudio.resumeEvent(this);}
-  stop(){gameAudio.stopEvent(this);if(this.anim){const a=this.anim;this.anim=null;this.actor.moving=false;a.resolve?.({cancelled:true});}this.paused=false;}
+  stop(){this.cancelDrinkDrag();gameAudio.stopEvent(this);if(this.anim){const a=this.anim;this.anim=null;this.actor.moving=false;a.resolve?.({cancelled:true});}this.paused=false;}
   reset(){this.stop();this.state=clone(this.initial);Object.assign(this.actor,this.state.position||{x:10,y:13},{moving:false,face:'up',walk:0});this.trail=[];this.flash=null;}
-  destroy(){this.stop();this.destroyed=true;cancelAnimationFrame(this.raf);this.resizeObserver.disconnect();this.canvas.removeEventListener('pointerdown',this.pointerHandler);window.removeEventListener('keydown',this.keyHandler);this.canvas.remove();}
+  destroy(){this.stop();this.destroyed=true;cancelAnimationFrame(this.raf);this.resizeObserver.disconnect();this.canvas.removeEventListener('pointerdown',this.pointerHandler);this.canvas.removeEventListener('pointermove',this.pointerMoveHandler);this.canvas.removeEventListener('pointerup',this.pointerUpHandler);this.canvas.removeEventListener('pointercancel',this.pointerCancelHandler);window.removeEventListener('keydown',this.keyHandler);this.canvas.remove();}
+  cancelDrinkDrag(){
+    const d=this.drinkDrag;if(!d)return;
+    try{if(this.canvas.hasPointerCapture?.(d.pointerId))this.canvas.releasePointerCapture(d.pointerId);}catch{}
+    this.drinkDrag=null;
+  }
   capture(){return this.canvas.toDataURL('image/png');}
   playEvent(event,{speed=2}={}) {
     this.stop();if(!event)return Promise.resolve();
@@ -135,8 +149,48 @@ export class SupermarketWorld {
     const r=this.canvas.getBoundingClientRect(),{view,scaleX,scaleY,ox,oy}=this._projection(r.width,r.height);
     return {x:(e.clientX-r.left-ox)/scaleX+view.x,y:(e.clientY-r.top-oy)/scaleY,scale:Math.min(scaleX,scaleY),scaleX,scaleY};
   }
+  _drinkSlotAt(point,{includeOccupied=true}={}){
+    if(this.chapterId!==1)return null;
+    let best=null,bestDistance=Infinity;
+    for(const [id,gx] of [['A',5],['B',10],['C',15]]){
+      const p=this._xy({x:gx,y:9}),dx=Math.abs(point.x-p.x),dy=Math.abs(point.y-(p.y-62));
+      // Include the complete cabinet and a forgiving margin around it. This
+      // makes tablet drops reliable while keeping nearby floor clicks intact.
+      if(dx>68||dy>82)continue;
+      const distance=Math.hypot(dx,dy/1.15);if(distance<bestDistance){
+        const item=this.state?.slots?.[id]||null;
+        if(includeOccupied||!item)best={id,item,p};
+        bestDistance=distance;
+      }
+    }
+    return best;
+  }
+  _drinkDropTarget(point){return this._drinkSlotAt(point,{includeOccupied:true});}
+  _drinkPointerMove(e){
+    const d=this.drinkDrag;if(!d||e.pointerId!==d.pointerId)return;
+    e.preventDefault();const point=this._screenPoint(e);d.point=point;d.moved=d.moved||Math.hypot(point.x-d.start.x,point.y-d.start.y)>4;d.hover=this._drinkDropTarget(point)?.id||null;
+  }
+  _drinkPointerEnd(e,cancelled=false){
+    const d=this.drinkDrag;if(!d||e.pointerId!==d.pointerId)return;
+    e.preventDefault();if(!cancelled)this._drinkPointerMove(e);
+    const hover=d.hover?this._drinkDropTarget(d.point):null;
+    const valid=!cancelled&&d.moved&&hover&&hover.id!==d.from&&!hover.item&&this.drinkDragEnabled&&!this.paused&&this.mode==='explore';
+    this.cancelDrinkDrag();
+    if(valid){this.callbacks.onDrinkMove?.({from:d.from,to:hover.id});}
+    else if(!cancelled&&d.moved){
+      const message=hover?.id===d.from?'请把饮料拖到另一个空柜':hover?.item?'这个柜子已有饮料':'请把饮料放入空柜';
+      this.flash={text:message,until:this.time+1.6};this.callbacks.onDrinkDragFeedback?.({message,from:d.from,to:hover?.id||null});
+    }
+  }
   _pointer(e){
     if(e.button&&e.button!==0)return;this.canvas.focus({preventScroll:true});const p=this._screenPoint(e);
+    if(e.type==='pointerdown'&&this.drinkDragEnabled&&!this.paused&&this.mode==='explore'&&!this.anim){
+      const source=this._drinkSlotAt(p,{includeOccupied:true});
+      if(source?.item){
+        e.preventDefault();try{this.canvas.setPointerCapture(e.pointerId);}catch{}
+        this.drinkDrag={pointerId:e.pointerId,from:source.id,item:source.item,start:p,point:p,hover:null,moved:false};return;
+      }
+    }
     const matches=this.hotspots.map(h=>{const s=this._hotpoint(h);return {h,dx:Math.abs(p.x-s.x),dy:Math.abs(p.y-s.y),d:Math.hypot(p.x-s.x,p.y-s.y)};}).sort((a,b)=>a.d-b.d);
     const rangeX=Math.max(22/p.scaleX,25),rangeY=Math.max(22/p.scaleY,25);
     const workstation=this.chapterId===3?this.hotspots.find(h=>{if(h.npc)return false;const point=this._xy(h);return Math.abs(p.x-point.x)<=56&&p.y>=point.y-151&&p.y<=point.y+12;}):null;
@@ -185,7 +239,7 @@ export class SupermarketWorld {
   shadow(x,y,w,h=9){this.g.fillStyle='#25454724';this.g.beginPath();this.g.ellipse(x,y,w/2,h/2,0,0,Math.PI*2);this.g.fill();}
   _draw(){
     this.labels=[];if(this.chapterId===4)this._outdoorBase();else this._base();if(this.chapterId===1)this._drink();else if(this.chapterId===2)this._juice();else if(this.chapterId===3)this._practice();else this._delivery();
-    this._drawRoutes();this._hotspots();
+    this._drawRoutes();this._hotspots();this._drawDrinkDrag();
     for(const h of this.hotspots.filter(h=>h.npc)){const p=this._xy(h);this._person(p.x,p.y,{npc:true,role:h.id});}
     const a=this._xy(this.actor);if(this.chapterId===4){this._courier(a.x,a.y);this._deliveryFlagTransfer(a.x,a.y);}else this._person(a.x,a.y,{face:this.actor.face,walk:this.actor.walk,moving:this.actor.moving,holding:this.state.holding,inventory:this.state.inventory});
     this._foreground();
@@ -207,7 +261,7 @@ export class SupermarketWorld {
     this.r(22,104,6,346,'#b5bca4');this.r(612,104,6,346,'#c4c5ac');
     for(const x of [52,474]){this.r(x,35,114,34,P.deep);this.r(x+3,37,108,28,'#c5dfd1');this.r(x+5,39,104,12,'#e6f0d4');this.r(x+53,38,3,29,'#86b1a5');this.r(x+6,62,104,2,'#a9d2c1');this.r(x+9,42,20,2,'#fffbe4');}
     this.r(212,30,216,48,'#315c59');this.r(216,33,208,41,'#e7d8ac');this.r(220,36,200,35,P.deep);this.r(220,36,200,2,'#659a87');
-    this.text('有序超市 · 社区门店',320,48,14,P.white);this.text(['','01  饮料陈列区','02  水果区 · 鲜榨橙汁','03  生活实践角','04  社区配送'][this.chapterId],320,65,10,'#c2dac0');
+    this.text('顺顺超市 · 社区门店',320,48,14,P.white);this.text(['','01  饮料陈列区','02  水果区 · 鲜榨橙汁','03  生活实践角','04  社区配送'][this.chapterId],320,65,10,'#c2dac0');
     for(const x of [44,592]){this.r(x-3,80,6,13,'#567f70');this.r(x-13,77,26,5,'#e8e1b9');this.r(x-10,82,20,2,'#fff6d6');}
     this.r(22,444,596,12,'#659085');this.r(22,444,596,2,'#afc6aa');
     // Floor boundary and the open entrance establish the small cutaway room.
@@ -335,7 +389,7 @@ export class SupermarketWorld {
   _outdoorBase(){
     this.r(0,0,WIDTH,HEIGHT,'#28484b');this.r(12,12,616,456,'#436e60');this.r(18,18,604,444,'#b6c799');
     for(let y=24;y<459;y+=14)for(let x=23;x<620;x+=17){if((x+y)%4===0)this.r(x,y,3,2,'#91b085');else if((x+y)%7===0)this.r(x,y,2,4,'#cad2a4');}
-    this.r(26,25,588,43,'#345d59');this.r(29,28,582,3,'#6e9c86');if(!this.flash||this.flash.until<=this.time)this.text('有序超市 · 社区配送',320,47,18,'#fff0cb');
+    this.r(26,25,588,43,'#345d59');this.r(29,28,582,3,'#6e9c86');if(!this.flash||this.flash.until<=this.time)this.text('顺顺超市 · 社区配送',320,47,18,'#fff0cb');
     // Buildings sit between roads. All road cells below come from DELIVERY_MAP.
     // Keep the small lawn blocks open for address labels beside the road.
     for(const [x,y]of [[65,155],[565,156],[66,266],[567,273],[66,385],[565,388]]){this._plant(x,y,.8);this.r(x-13,y+16,26,3,'#8da984');}
@@ -383,7 +437,7 @@ export class SupermarketWorld {
       this.r(x-4,y-18,8,4,'#bd6a60');this.r(x-2,y-20,4,8,'#bd6a60');
     }else if(school){
       this.r(x-2,y-17,5,5,'#f7edcf');this.r(x,y-16,1,3,'#8e7961');
-      this.r(x+27,y-42,2,17,'#7d8570');this.r(x+29,y-42,13,8,'#bd6a55');
+      // No decorative roof flag here: A–F order pennants carry delivery state.
     }else{
       // A little train and platform make the station readable without a large sign.
       this.r(x-30,y-14,60,13,'#e7d9aa');this.r(x-26,y-11,10,6,'#6d948b');
@@ -478,6 +532,17 @@ export class SupermarketWorld {
       if(eligible){const pulse=Math.sin(this.time*4)*2;this.g.fillStyle='#f7d77a24';this.g.fillRect(hp.x-touchX/2-pulse,hp.y-touchY/2-pulse,touchX+pulse*2,touchY+pulse*2);this.g.strokeStyle='#b78a42';this.g.lineWidth=2;this.g.setLineDash([5,3]);this.g.strokeRect(hp.x-touchX/2,hp.y-touchY/2,touchX,touchY);this.g.setLineDash([]);this.text('点选',hp.x,hp.y+touchY/2+10,11,'#8a6a3e');}
       if(h.npc){this.shadow(p.x,p.y+1,25);this.r(p.x-13,p.y-57,26,17,'#fff0c9');this.r(p.x-15,p.y-55,30,13,'#fff0c9');this.poly([[p.x-3,p.y-40],[p.x+4,p.y-40],[p.x,p.y-35]],'#fff0c9');this.text('···',p.x,p.y-48,15,P.teal);this.text(h.label,p.x,p.y+16,11,P.deep);}
     }
+  }
+  _drawDrinkDrag(){
+    const d=this.drinkDrag;if(!d||this.chapterId!==1)return;
+    const target=d.hover&&this._drinkDropTarget(d.point),valid=target&&target.id!==d.from&&!target.item;
+    if(target){
+      const p=target.p;this.g.save();this.g.globalAlpha=.8;this.g.fillStyle=valid?'#f6d87866':'#c5756655';this.g.strokeStyle=valid?'#bf8d38':'#a95e50';this.g.lineWidth=3;this.g.setLineDash([6,4]);this.g.fillRect(p.x-54,p.y-110,108,75);this.g.strokeRect(p.x-54,p.y-110,108,75);this.g.setLineDash([]);this.g.restore();
+      this.text(valid?'放到这里':'已有饮料',p.x,p.y-119,11,valid?'#805b30':'#8d4c42','center','700',true);
+    }
+    if(!d.moved)return;
+    const p=d.point;if(!Number.isFinite(p?.x)||!Number.isFinite(p?.y)||p.x<0||p.x>WIDTH||p.y<0||p.y>HEIGHT)return;
+    this.g.save();this.g.globalAlpha=.82;this._crate(p.x,p.y,d.item);this.g.restore();
   }
   _person(x,y,{npc=false,role='',face='down',walk=0,moving=false,holding=null,inventory=[]}={}){
     x=Math.round(x);y=Math.round(y);const step=moving?Math.sin(walk*Math.PI)*2:0,bob=moving?Math.abs(Math.sin(walk*Math.PI)):-Math.sin(this.time*2)*.35;

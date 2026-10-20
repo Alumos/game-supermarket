@@ -1,6 +1,6 @@
 {
   "name": "ordered-supermarket-classroom",
-  "version": "1.3.14",
+  "version": "1.3.15",
   "private": true,
   "type": "module",
   "description": "五年级顺序结构课程：超市社会实践的一天",
@@ -15,6 +15,7 @@
     "test:classroom": "node tests/classroom.browser.mjs",
     "test:offline": "node tests/offline.browser.mjs",
     "test:delivery": "node tests/delivery.browser.mjs",
+    "test:drink-map-world": "node tests/drink-map-world.browser.mjs",
     "test:drag-drop": "node tests/drag-drop.browser.mjs",
     "test:snap": "node tests/snap.browser.mjs",
     "test:motion": "node tests/motion.browser.mjs",

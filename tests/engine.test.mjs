@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TASKS,CHAPTERS,STOCK_MAP,DELIVERY_MAP,DELIVERY_RULES_VERSION,deliveryRulesVersion,deliveryRoadDelay,initialState,availableActions,validateGraph,simulate,exampleGraph,buildGraph,pathBetween,deliveryPathBetween,actionLabel,normalizeDeliveryGraph,normalizeDeliveryResult} from '../shared/engine.mjs';
+import {TASKS,CHAPTERS,STOCK_MAP,DELIVERY_MAP,DELIVERY_RULES_VERSION,DELIVERY_RULES_V3,deliveryRulesVersion,deliveryRoadDelay,initialState,availableActions,validateGraph,simulate,exampleGraph,buildGraph,pathBetween,deliveryPathBetween,actionLabel,normalizeDeliveryGraph,normalizeDeliveryResult} from '../shared/engine.mjs';
 
 const graph=(actions,chapterId=4,taskId='delivery')=>buildGraph(actions,{chapterId,taskId});
 const move=(from,to)=>({actionId:'move_crate',params:{from,to}});
 const to=point=>({actionId:'move_to',params:typeof point === 'string' ? {...DELIVERY_MAP.points[point]} : point});
 const permutations=values=>values.length ? values.flatMap((v,i)=>permutations(values.filter((_,j)=>i!==j)).map(rest=>[v,...rest])) : [[]];
+const oldRoadsideActions=['H','B','E','D','A','B','C','F'].map(point=>({actionId:'move_to',params:{...DELIVERY_MAP.points[point]}}));
+const versionedGraph=(actions,version)=>{const g=buildGraph(actions,{chapterId:4,taskId:'delivery'});g.deliveryRulesVersion=version;return g;};
 
 test('catalog exposes juice, four practice jobs and delivery with independent frozen definitions',()=>{
   assert.equal(CHAPTERS.length,4);assert.equal(TASKS.length,7);
@@ -99,7 +101,7 @@ test('delivery coordinates increase northward without changing other scenes or r
   assert.equal(example.deliveryCoordinates,'cartesian-y-up');assert.equal(example.contentVersion,'1.0.0');
   assert.equal(buildGraph([],{chapterId:4,taskId:'delivery'}).deliveryCoordinates,'cartesian-y-up');
   assert.equal(exampleGraph(2).deliveryCoordinates,undefined);
-  assert.deepEqual(example.nodes.filter(node=>node.kind==='action').map(node=>node.params),['H','B','E','D','A','B','C','F'].map(point=>DELIVERY_MAP.points[point]));
+  assert.deepEqual(example.nodes.filter(node=>node.kind==='action').map(node=>node.params),['H','B','A','D','E','F','C'].map(point=>DELIVERY_MAP.points[point]));
   assert.equal(normalizeDeliveryGraph(example),example);
   assert.equal(normalizeDeliveryGraph(exampleGraph(2)).taskId,'fresh-juice');
 });
@@ -155,7 +157,7 @@ test('legacy delivery result conversion preserves immutable history and all nest
 test('minute task units preserve route values and upgrade historical display copies without rescaling',()=>{
   const graph=exampleGraph(4),result=simulate(graph);
   assert.equal(result.timeUnit,'minutes');assert.equal(result.initialState.timeUnit,'minutes');assert.equal(result.finalState.timeUnit,'minutes');
-  assert.equal(result.metrics.total,50);assert.equal(result.metrics.coins,115);
+  assert.equal(result.metrics.total,45);assert.equal(result.metrics.coins,119);
   for(const row of result.trace) {
     assert.equal(row.before.timeUnit,'minutes');assert.equal(row.after.timeUnit,'minutes');
     for(const event of row.events)assert.equal(event.state.timeUnit,'minutes');
@@ -164,14 +166,14 @@ test('minute task units preserve route values and upgrade historical display cop
   const removeUnit=value=>{if(value&&typeof value==='object'){delete value.timeUnit;for(const child of Object.values(value))removeUnit(child);}};
   removeUnit(previous);const original=structuredClone(previous),display=normalizeDeliveryResult(previous,graph);
   assert.deepEqual(display,result);assert.deepEqual(previous,original);assert.notEqual(display,previous);
-  assert.equal(display.metrics.total,50);assert.equal(display.finalState.orders.find(order=>order.point==='A').deadline,28);
+  assert.equal(display.metrics.total,45);assert.equal(display.finalState.orders.find(order=>order.point==='A').deadline,30);
   assert.equal(display.finalState.orders.find(order=>order.point==='D').deadline,56);
   assert.equal(normalizeDeliveryResult(display,graph),display);
   assert.equal(simulate(exampleGraph(2)).timeUnit,undefined);
 });
 
 test('roadside delays keep several successful plans and reward thoughtful route order',()=>{
-  for(const [variant,coins,delivered,failed,total] of [['best',115,6,0,50],['good',107,6,0,51],['demo',107,6,0,51],['bad',83,5,1,49],['cross',83,5,1,49]]) {
+  for(const [variant,coins,delivered,failed,total] of [['best',119,6,0,45],['good',116,6,0,50],['demo',116,6,0,50],['bad',84,5,1,49],['cross',84,5,1,49]]) {
     const source=exampleGraph(4,'delivery',variant),copy=structuredClone(source),result=simulate(source);
     assert.equal(result.ok,true);assert.equal(result.completed,true);
     assert.deepEqual(result.metrics,{walk:total-12,handling:12,total,onTime:failed===0,coins,delivered,failed});
@@ -180,6 +182,17 @@ test('roadside delays keep several successful plans and reward thoughtful route 
     assert.deepEqual(source,copy);assert.deepEqual(simulate(source),result); // wall clock and replay speed have no role
   }
   assert.deepEqual(simulate(exampleGraph(4,'bad')).finalState.orders.filter(o=>o.status==='spoiled').map(o=>o.point),['A']);
+});
+
+test('roadside-v4 reference route has a one-minute cold margin and a concrete late contrast',()=>{
+  const best=simulate(exampleGraph(4,'delivery','best'));
+  assert.deepEqual(best.trace.flatMap(row=>row.events).filter(event=>event.type==='delivery').map(event=>[event.point,event.arrivedAt]),[['B',6],['A',14],['D',20],['E',29],['F',37],['C',43]]);
+  assert.deepEqual(best.metrics,{walk:33,handling:12,total:45,onTime:true,coins:119,delivered:6,failed:0});
+  assert.equal(best.finalState.orders.find(order=>order.point==='E').deadline,30);
+  const bad=simulate(exampleGraph(4,'delivery','bad'));
+  assert.equal(bad.finalState.orders.find(order=>order.point==='A').status,'spoiled');
+  assert.equal(bad.finalState.orders.find(order=>order.point==='A').arrivedAt,41);
+  assert.deepEqual(bad.metrics,{walk:37,handling:12,total:49,onTime:false,coins:84,delivered:5,failed:1});
 });
 
 test('exhaustive six-address bounds prove maximum coins and the fastest route attaining that reward',()=>{
@@ -217,7 +230,7 @@ test('exhaustive six-address bounds prove maximum coins and the fastest route at
     if(coins>upperCoins){upperCoins=coins;bestRewardTime=elapsed;}else if(coins===upperCoins)bestRewardTime=Math.min(bestRewardTime,elapsed);
     lowerTime=Math.min(lowerTime,elapsed);
   }
-  const best=simulate(exampleGraph(4));assert.equal(best.metrics.coins,upperCoins);assert.equal(upperCoins,115);assert.equal(best.metrics.total,bestRewardTime);assert.equal(lowerTime,45);assert.equal(best.metrics.failed,0);
+  const best=simulate(exampleGraph(4));assert.equal(best.metrics.coins,upperCoins);assert.equal(upperCoins,119);assert.equal(best.metrics.total,bestRewardTime);assert.equal(lowerTime,45);assert.equal(best.metrics.failed,0);
 });
 
 test('passing an address automatically delivers once, with walk and delivery snapshots in order',()=>{
@@ -247,11 +260,11 @@ test('one coordinate block cannot turn, cross a building, or teleport; rejection
 });
 
 test('deadline is inclusive, handling time counts, and expiry is resolved on arrival',()=>{
-  const exact=simulate(graph([to('B'),to('W'),to('B'),to({x:9,y:7}),to('B'),to('A')]));
+  const exact=simulate(versionedGraph([to('B'),to('W'),to('B'),to({x:9,y:7}),to('B'),to('A')],DELIVERY_RULES_V3));
   const a=exact.finalState.orders.find(o=>o.point==='A');
   assert.equal(a.arrivedAt,28);assert.equal(a.status,'delivered');
   assert.equal(exact.trace.flatMap(r=>r.events).find(e=>e.orderId==='order-a').coins,18);
-  const late=simulate(graph([to('B'),to('W'),to('B'),to({x:8,y:7}),to('B'),to('A')]));
+  const late=simulate(versionedGraph([to('B'),to('W'),to('B'),to({x:8,y:7}),to('B'),to('A')],DELIVERY_RULES_V3));
   const spoiled=late.finalState.orders.find(o=>o.point==='A');
   assert.equal(spoiled.arrivedAt,30);assert.equal(spoiled.status,'spoiled');
   assert.equal(late.finalState.orders.find(o=>o.point==='E').status,'pending'); // expired but not yet attempted
@@ -260,20 +273,19 @@ test('deadline is inclusive, handling time counts, and expiry is resolved on arr
 });
 
 test('short perimeter is insufficient and old saved rules replay without being rewritten',()=>{
-  const current=graph(['H','B','A','D','E','F','C'].map(to)),untouched=structuredClone(current);
-  const result=simulate(current);assert.deepEqual(result.metrics,{walk:33,handling:12,total:45,onTime:false,coins:82,delivered:5,failed:1});
-  assert.equal(result.finalState.orders.find(o=>o.point==='E').status,'spoiled');
+  const current=exampleGraph(4),untouched=structuredClone(current);
+  const result=simulate(current);assert.deepEqual(result.metrics,{walk:33,handling:12,total:45,onTime:true,coins:119,delivered:6,failed:0});
+  assert.equal(result.finalState.orders.find(o=>o.point==='E').status,'delivered');
   assert.deepEqual(result.finalState.orders.filter(o=>o.cold).map(o=>o.point),['A','E']);
   assert.equal(result.finalState.orders.find(o=>o.point==='D').name,'饼干订单');
   assert.equal(deliveryRulesVersion(current),DELIVERY_RULES_VERSION);assert.equal(deliveryRulesVersion(result),DELIVERY_RULES_VERSION);
-  const legacy=structuredClone(current);delete legacy.deliveryRulesVersion;
-  const before=structuredClone(legacy),old=simulate(legacy);
-  assert.deepEqual(old.metrics,{walk:32,handling:12,total:44,onTime:true,coins:115,delivered:6,failed:0});
-  assert.deepEqual(old.finalState.orders.filter(o=>o.cold).map(o=>o.point),['A','D']);
-  assert.equal(deliveryRulesVersion(legacy),'left-cold-v1');assert.equal(deliveryRulesVersion(old),'left-cold-v1');
-  assert.deepEqual(legacy,before);assert.deepEqual(current,untouched);
-  const oldTrace=structuredClone(old.trace);const stripRules=value=>{if(value&&typeof value==='object'){delete value.deliveryRulesVersion;for(const child of Object.values(value))stripRules(child);}};stripRules(oldTrace);
-  const traceOriginal=structuredClone(oldTrace);assert.deepEqual(normalizeDeliveryResult({trace:oldTrace},legacy).trace,old.trace);assert.deepEqual(oldTrace,traceOriginal);
+  const old=versionedGraph(oldRoadsideActions,DELIVERY_RULES_V3),before=structuredClone(old),oldResult=simulate(old);
+  assert.deepEqual(oldResult.metrics,{walk:38,handling:12,total:50,onTime:true,coins:115,delivered:6,failed:0});
+  assert.deepEqual(oldResult.finalState.orders.filter(o=>o.cold).map(o=>o.point),['A','E']);
+  assert.equal(deliveryRulesVersion(old),DELIVERY_RULES_V3);assert.equal(deliveryRulesVersion(oldResult),DELIVERY_RULES_V3);
+  assert.deepEqual(old,before);assert.deepEqual(current,untouched);
+  const oldTrace=structuredClone(oldResult.trace);const stripRules=value=>{if(value&&typeof value==='object'){delete value.deliveryRulesVersion;for(const child of Object.values(value))stripRules(child);}};stripRules(oldTrace);
+  const traceOriginal=structuredClone(oldTrace);assert.deepEqual(normalizeDeliveryResult({trace:oldTrace},old).trace,oldResult.trace);assert.deepEqual(oldTrace,traceOriginal);
   const badVersion={...current,deliveryRulesVersion:'future-rules'};assert.equal(validateGraph(badVersion).ok,false);
 });
 
@@ -313,8 +325,9 @@ test('slow roads charge once per crossing in either direction and cannot be avoi
 });
 
 test('split-cold-v2 history retains its original deadlines, times and rewards without roadside costs',()=>{
-  for(const [variant,coins,failed] of [['best',117,0],['demo',110,0],['bad',84,1]]){
-    const source={...exampleGraph(4,'delivery',variant),deliveryRulesVersion:'split-cold-v2'},before=structuredClone(source),result=simulate(source);
+  for(const [variant,coins,failed] of [['best',117,0],['demo',117,0],['bad',84,1]]){
+    const actions=variant==='bad'?['H','B','E','F','C','B','A','D'].map(point=>({actionId:'move_to',params:{...DELIVERY_MAP.points[point]}})):oldRoadsideActions;
+    const source=versionedGraph(actions,'split-cold-v2'),before=structuredClone(source),result=simulate(source);
     assert.equal(result.completed,true);assert.deepEqual(source,before);
     assert.deepEqual(result.metrics,{walk:36,handling:12,total:48,onTime:failed===0,coins,delivered:6-failed,failed});
     assert.ok(result.finalState.orders.filter(o=>o.cold).every(o=>o.deadline===26));

@@ -48,7 +48,7 @@ try{
   const initial=await observe();
   assert.deepEqual(Object.values(initial.flags),Array(6).fill(red));
   assert.equal(initial.backpackFlagPixels,0);
-  assert.ok(initial.labels.some(label=>label.text==='❄ 28分钟内'));
+  assert.ok(initial.labels.some(label=>label.text==='❄ 30分钟内'));
   await screenshot('flags-start');checks.push('six roadside flags render with cold deadlines still visible');
 
   // Use a real successful event, leaving enough time to capture its transfer.

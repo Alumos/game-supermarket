@@ -218,6 +218,22 @@ body{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidd
 .practice-tasks button{flex:1;min-width:55px;min-height:36px;padding:5px 8px;border:1px solid #a8c7dd;border-radius:7px;background:#e6f1fb;color:#285e81;font-size:12px;font-weight:650;white-space:nowrap}
 .practice-tasks button[aria-pressed=true]{background:#f5d487;border-color:#b98a36;color:#694917;box-shadow:inset 0 -2px 0 #dcba70}
 .practice-tasks button:not(:disabled):hover{border-color:#477c9d;background:#d8eafa}
+
+/* Delivery steps use the same calm card language as the other activities.
+   Coordinate fields remain editable, while the blue puzzle silhouette is
+   reserved for the drag preview only. */
+.program-block{background:#fffef5;color:#2f5142;border-color:#bfd0b3;box-shadow:0 3px 0 #dce3cf;border-radius:7px}
+.program-block::before,.program-block::after{display:none}
+.program-block.terminal,.program-block.block-start,.program-block.block-end{background:#fffef5;color:#2f5142;border-color:#bfd0b3;border-radius:7px;box-shadow:0 3px 0 #dce3cf}
+.program-block.terminal::before,.program-block.terminal::after,.program-block.block-start::before,.program-block.block-start::after,.program-block.block-end::before,.program-block.block-end::after{display:none}
+.program-block .node-grip{color:#9caf9a}
+.program-block .node-number{color:#8c9d88}
+.program-block.executing{background:#fff1cd;border-color:#d4a248;box-shadow:0 0 0 3px #e6c46a4d,0 3px 0 #dce3cf}
+.program-block.failed{background:#fff1df;border-color:#cc8a65}
+.control-panel .block-palette{background:#edf0df!important;color:#5f7754!important;border:1px solid #d8dfc9!important;box-shadow:0 3px 0 #dce3cf;border-radius:6px}
+.drink-questions{display:flex;flex-direction:column;gap:8px;padding:4px 2px 2px}
+.drink-questions p{margin:0;padding:9px 10px;background:#fff8df;border:1px solid #e3c77d;border-left:4px solid #d59c4d;border-radius:7px;color:#6c5a38;font-size:12px;line-height:1.65}
+.drink-questions b{color:#9b6a2c;font-size:11px}
 .practice-tasks button[aria-pressed=true]:not(:disabled):hover{background:#f5d487;border-color:#b98a36}
 .practice-tasks button:focus-visible{outline:3px solid #bb872e;outline-offset:2px}
 
