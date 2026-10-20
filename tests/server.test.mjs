@@ -162,9 +162,9 @@ test('automatic joining is private, balanced, concurrent, durable and isolated b
  await h.restart();assert.equal((await call('/api/student/current')).session.id,firstId);assert.equal((await join(token)).learner.id,first.learner.id);
  await command('end');assert.equal((await call('/api/student/current')).session,null);assert.equal((await join(token)).learner,null);
  await h.restart();assert.equal((await call('/api/student/current')).session,null);
- // Selecting then deleting the remaining classroom also preserves the empty selection.
- session=(await call(`/api/sessions/${secondId}/state`,{cookie:teacher.cookie})).session;await command('set-current');
- await call(`/api/sessions/${secondId}`,{cookie:teacher.cookie,method:'DELETE'});assert.equal((await call('/api/student/current')).session,null);
+ // Ending and explicitly deleting the remaining classroom preserves the empty selection.
+ session=(await call(`/api/sessions/${secondId}/state`,{cookie:teacher.cookie})).session;await command('set-current');await command('end');
+ await call(`/api/sessions/${secondId}`,{cookie:teacher.cookie,method:'DELETE',body:{confirmName:session.name}});assert.equal((await call('/api/student/current')).session,null);
  await h.restart();assert.equal((await call('/api/student/current')).session,null);
 });
 

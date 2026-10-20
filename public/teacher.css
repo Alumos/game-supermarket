@@ -32,3 +32,8 @@ body{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidd
 .sound-toggle{min-height:36px;padding:6px 9px;font-size:12px;white-space:nowrap;background:#edf2e5;color:#47694e;border-color:#bdcfb7}
 .sound-toggle[aria-pressed=false]{background:transparent;color:#7b8874;border-color:#d1d9c7}
 .detail-header-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+.room-maintenance{margin:16px 0;padding:14px 0;border-top:1px solid var(--line)}.maintenance-actions{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0 7px}.maintenance-actions button{padding:7px 9px;min-height:40px;font-size:12px}.room-maintenance small{font-size:11px;color:var(--muted);line-height:1.6}.maintenance-warning{padding:12px;background:#fff0e7;border-radius:8px;color:#974c34!important}#maintenance-dialog label{margin:18px 0 0;font-size:13px;overflow-wrap:anywhere}#maintenance-description{overflow-wrap:anywhere}#maintenance-dialog .dialog-actions button{flex:1}#maintenance-submit:enabled{background:#a64e37;border-color:#a64e37;color:white}@media(max-width:900px){.room-maintenance{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0 0;padding:10px 0 0}.room-maintenance .eyebrow{display:none}.maintenance-actions{margin:0}.room-maintenance small{margin-left:auto}}
+
+/* Keep maintenance reachable even after many saved classrooms accumulate. */
+@media(min-width:901px){.side-section{min-height:0;display:flex;flex-direction:column;flex:1}.side-section nav{min-height:0;overflow:auto}.new-room,.room-maintenance,.side-bottom{flex-shrink:0}}

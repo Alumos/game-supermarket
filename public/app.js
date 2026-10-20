@@ -697,7 +697,28 @@ async function hydrateWorks(data){
   state.feedback=data.feedback||[];await safeSet(`feedback:${scope()}`,state.feedback);
   for(const sub of data.submissions||[])await safeSet(`submission:${scope()}:${sub.id}`,{...sub,synced:true});
 }
-let roomApply=Promise.resolve();
+let roomApply=Promise.resolve(),roomRefresh=null,roomAck=null,lastRoomAck=null,ackRequested=false;
+// Presence needs a periodic acknowledgement; identical SSE snapshots do not.
+function acknowledgeRoom(){
+  if(!state.session||!state.learner)return Promise.resolve();
+  const sessionId=state.session.id,learnerId=state.learner.id,version=state.session.version,chapterId=state.chapter;
+  const key=`${sessionId}:${learnerId}:${version}:${chapterId}`;
+  if(lastRoomAck?.key===key&&Date.now()-lastRoomAck.at<10000)return Promise.resolve();
+  if(roomAck){ackRequested=true;return roomAck;}
+  roomAck=api('/api/student/ack',{method:'POST',body:{version,chapterId}})
+    .then(response=>{if(state.session?.id!==sessionId||state.learner?.id!==learnerId)return;lastRoomAck={key,at:Date.now()};
+      // A proxy can keep SSE open while buffering state events. The existing
+      // presence response detects that condition without another idle request.
+      if(response.session?.version>state.session.version||(response.learner?.taskVersion||0)>(state.learner.taskVersion||0))return alignRoom();
+    })
+    .catch(()=>{})
+    .finally(()=>{roomAck=null;if(ackRequested){ackRequested=false;acknowledgeRoom();}});
+  return roomAck;
+}
+function roomSignature(data){
+  const {lastSeen,online,receivedVersion,appliedVersion,...learner}=data.learner||{};
+  return JSON.stringify({session:data.session,learner,assignment:data.assignment});
+}
 function acceptRoom(data){roomApply=roomApply.then(()=>applyRoom(data)).catch(e=>{console.error(e);toast('课堂状态同步未完成，请检查连接');});return roomApply;}
 async function applyRoom(data){
   if(!data.session||state.session&&(data.session.id!==state.session.id||data.session.version<state.session.version))return;
@@ -707,8 +728,9 @@ async function applyRoom(data){
     data={...data,learner:data.learner?{...data.learner,taskId:state.learner.taskId,taskVersion:currentTaskVersion}:state.learner,
       assignment:data.assignment?{...data.assignment,taskVersion:currentTaskVersion,...(data.session.chapterId===3?{taskId:state.learner.taskId,draftId:`${state.learner.id}-3-${state.learner.taskId}`}:{})}:state.assignment};
   }
-  const previous=state.session,chapterChanged=data.session.chapterId!==state.chapter,changed=chapterChanged||data.assignment?.taskId&&data.assignment.taskId!==state.taskId;
+  const previous=state.session,unchanged=roomSignature(data)===roomSignature(state),chapterChanged=data.session.chapterId!==state.chapter,changed=chapterChanged||data.assignment?.taskId&&data.assignment.taskId!==state.taskId;
   state.session=data.session;if(data.learner)state.learner=data.learner;if(data.assignment)state.assignment=data.assignment;
+  if(unchanged&&!changed&&state.teacherPaused===(state.session.phase==='paused')){renderNotice();acknowledgeRoom();return;}
   await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
   if(changed)await changeChapter(state.session.chapterId,data.assignment?.taskId||(state.session.chapterId===3?state.learner.taskId:defaultTask(state.session.chapterId)),{fromTeacher:chapterChanged,transition:chapterChanged});
   if(!changed&&state.session.phase==='explain'&&previous?.phase==='practice')await stopRun('interrupted','老师开始讲解');
@@ -716,15 +738,22 @@ async function applyRoom(data){
   state.teacherPaused=state.session.phase==='paused';
   if(state.running||state.demo){if(state.teacherPaused){world.pause();gameAudio.silence();}else if(!state.userPaused)world.resume();}
   renderNotice();renderConnection();updateControls();
-  api('/api/student/ack',{method:'POST',body:{version:state.session.version,chapterId:state.chapter}}).catch(()=>{});
+  acknowledgeRoom();
 }
-async function alignRoom(){if(!state.session)return;const id=state.session.id,data=await api(`/api/sessions/${id}/state`);if(state.session?.id===id)await acceptRoom(data);}
+function alignRoom(){
+  if(!state.session)return Promise.resolve();
+  if(roomRefresh)return roomRefresh;
+  const id=state.session.id;
+  roomRefresh=api(`/api/sessions/${id}/state`).then(async data=>{if(state.session?.id===id)await acceptRoom(data);}).finally(()=>{roomRefresh=null;});
+  return roomRefresh;
+}
 function connectStream(){
   state.stream?.close();if(!state.session)return;const stream=new EventSource(`/api/sessions/${state.session.id}/stream?role=student`);state.stream=stream;
-  stream.addEventListener('state',event=>{const data=JSON.parse(event.data);acceptRoom(data).then(()=>flushQueue());});
-  stream.onopen=()=>{state.online=true;renderConnection();alignRoom().then(()=>flushQueue()).catch(()=>{});};
+  stream.addEventListener('state',event=>{const data=JSON.parse(event.data);acceptRoom(data).then(()=>{flushQueue();if(data.currentSessionId&&data.currentSessionId!==state.session?.id)syncCurrentClass();});});
+  // The stream sends its own initial snapshot, including after a reconnect.
+  stream.onopen=()=>{state.online=true;renderConnection();renderNotice();flushQueue();};
   stream.onerror=()=>{state.online=false;renderConnection();renderNotice();};
-  clearInterval(heartbeat);heartbeat=setInterval(async()=>{if(!state.session)return;try{await alignRoom();flushQueue();}catch{}},8000);
+  clearInterval(heartbeat);heartbeat=setInterval(async()=>{if(!state.session)return;try{if(state.stream?.readyState===EventSource.OPEN)await acknowledgeRoom();else await alignRoom();flushQueue();}catch{}},12000);
 }
 function startTabLease(){
   clearInterval(leaseTimer);channel?.close();if(!state.learner)return;
@@ -741,7 +770,7 @@ async function enterClass(data){
     world.setChapter(state.chapter,state.taskId);world.setState(initialState(state.chapter,state.taskId));resetMetrics();renderChapter();
   }
   state.queue=await db.get(`queue:${scope()}`,[]);await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
-  await hydrateWorks(await api('/api/student/works'));const current=await api(`/api/sessions/${state.session.id}/state`);state.assignment=current.assignment;
+  await hydrateWorks(await api('/api/student/works?history=0'));const current=await api(`/api/sessions/${state.session.id}/state`);state.assignment=current.assignment;
   state.graph=null;await changeChapter(current.session.chapterId,current.assignment.taskId,{transition:false});await acceptRoom(current);state.authExpired=false;startTabLease();connectStream();flushQueue();
   for(const dialog of ['#welcome','#identityDialog','#recoverDialog'])if($(dialog).open)$(dialog).close();
 }
@@ -759,15 +788,16 @@ async function prepareClassSwitch({archive=true,persist=true}={}){
   clearInterval(leaseTimer);channel?.close();
   if(state.learner)try{const key=`supermarket-tab:${state.learner.id}`,lease=JSON.parse(localStorage.getItem(key)||'null');if(lease?.id===identityToken)localStorage.removeItem(key);}catch{}
 }
-let classSync=null;
-function syncCurrentClass(){
+let classSync=null,lastClassCheck=0;
+function syncCurrentClass({background=false}={}){
   if(teacherDemoRequested||state.teacherDemoMode)return Promise.resolve();
   if(classSync)return classSync;
   if(!navigator.onLine||state.joining||!deviceToken||!state.graph)return Promise.resolve();
+  if(background&&!state.authExpired&&!state.classUnavailable&&state.session?.phase!=='ended'&&state.stream?.readyState===EventSource.OPEN&&Date.now()-lastClassCheck<15000)return Promise.resolve();
   classSync=(async()=>{
     let switching=false;
     try{
-      const {session}=await api('/api/student/current');
+      lastClassCheck=Date.now();const {session}=await api('/api/student/current');
       if(!session){state.classUnavailable=!!state.learner&&state.session?.phase!=='ended';return;}
       if(session.id===state.session?.id&&!state.authExpired&&linkedSessionId===session.id){state.classUnavailable=false;return;}
       const changed=session.id!==state.session?.id;
@@ -836,7 +866,7 @@ $('#submitForm').onsubmit=async e=>{
     $('#saveStatus').textContent=state.learner?'已提交自评 · 同步中':'作品和自评已保存';
   }finally{submittingAssessment=false;renderSelfRating();}
 };
-$('#historyButton').onclick=async()=>{if(state.learner&&state.online)try{await hydrateWorks(await api('/api/student/works'));}catch{}await showHistory();$('#historyDialog').showModal();};
+$('#historyButton').onclick=async()=>{if(state.learner&&state.online)try{await hydrateWorks(await api('/api/student/works?history=0'));}catch{}await showHistory();$('#historyDialog').showModal();};
 $('#historyTopButton').onclick=()=>$('#historyButton').click();
 async function showHistory(){
   const runs=state.runs.slice().sort((a,b)=>b.createdAt-a.createdAt);const backups=await db.all(`backup:${scope()}:`);let content=runs.length?runs.map((r,i)=>`<article class="history-item"><strong>第${r.chapterId}站 · ${esc(TASKS.find(t=>t.id===r.taskId)?.name||r.taskId)} · ${r.valid?(r.metrics?.failed?'完成 · 有订单失败':'完成'):r.status==='failed'?'需修改':r.status==='interrupted'?'切章中断':'已停止'}</strong><p>${new Date(r.createdAt).toLocaleTimeString('zh-CN')} ${r.valid&&r.chapterId===4?` · 用时${r.metrics.total}分钟，金币${r.metrics.coins??0}，失败${r.metrics.failed??0}单`:''}${state.learner?(r.synced?' · 已同步':' · 本机记录'):''}</p><button class="secondary" data-history="${r.id}">查看当时的作品</button>${!state.session||state.chapter===r.chapterId&&allowed()?`<button class="quiet" data-restore="${r.id}">恢复为当前草稿</button>`:''}</article>`).join(''):'<p>还没有运行记录。画好流程图后，试着运行一次。</p>';
@@ -916,7 +946,7 @@ async function bootstrap(){
   else if(me&&participant?.learner){state.authExpired=true;state.online=false;}
   if(participant?.learner&&participant.session){
     state.learner=participant.learner;state.session=participant.session;state.assignment=participant.assignment;state.queue=await db.get(`queue:${scope()}`,[]);
-    if(state.online)try{await hydrateWorks(await api('/api/student/works'));}catch{}else{state.runs=(await db.all(`run:${scope()}:`)).map(x=>x.value);state.feedback=await db.get(`feedback:${scope()}`,[]);}
+    if(state.online)try{await hydrateWorks(await api('/api/student/works?history=0'));}catch{}else{state.runs=(await db.all(`run:${scope()}:`)).map(x=>x.value);state.feedback=await db.get(`feedback:${scope()}`,[]);}
     let room;try{room=await api(`/api/sessions/${state.session.id}/state`);}catch{}
     const ch=room?.session.chapterId||state.session.chapterId,t=room?.assignment.taskId||state.assignment?.taskId||(ch===3?state.learner.taskId:defaultTask(ch));
     await changeChapter(ch,t,{transition:false});if(room)await acceptRoom(room);if(!state.authExpired){startTabLease();connectStream();}
@@ -926,7 +956,7 @@ async function bootstrap(){
   await recoverInterruptedRuns();
   await syncCurrentClass();state.checkingClass=false;
   if(!state.learner&&!await db.get('hasEntered'))$('#welcome').showModal();
-  clearInterval(classTimer);classTimer=setInterval(()=>syncCurrentClass(),4000);
+  clearInterval(classTimer);classTimer=setInterval(()=>syncCurrentClass({background:true}),4000);
   renderConnection();renderNotice();updateControls();flushQueue();
   if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 }

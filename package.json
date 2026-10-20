@@ -1,6 +1,6 @@
 {
   "name": "ordered-supermarket-classroom",
-  "version": "1.3.11",
+  "version": "1.3.12",
   "private": true,
   "type": "module",
   "description": "五年级顺序结构课程：超市社会实践的一天",
@@ -28,6 +28,9 @@
     "test:fruit-flow": "node tests/fruit-flow.browser.mjs",
     "test:fruit-classroom": "node tests/fruit-flow-classroom.browser.mjs",
     "test:communication": "node tests/communication-compat.browser.mjs",
-    "test:audio": "node tests/audio.browser.mjs"
+    "test:audio": "node tests/audio.browser.mjs",
+    "test:sync-traffic": "node tests/sync-traffic.browser.mjs",
+    "test:teacher-maintenance": "node tests/teacher-maintenance.browser.mjs",
+    "profile:load": "node tests/load-profile.mjs"
   }
 }

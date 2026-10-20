@@ -11,13 +11,13 @@ VPS 需先安装 Docker Engine 和 Docker Compose v2，确保 `docker compose ve
 ```sh
 mkdir -p game-supermarket
 cd game-supermarket
-curl -fL https://raw.githubusercontent.com/Alumos/game-supermarket/v1.3.11/compose.yaml -o compose.yaml
+curl -fL https://raw.githubusercontent.com/Alumos/game-supermarket/v1.3.12/compose.yaml -o compose.yaml
 # 启动前配置 .env 中的 SUPERMARKET_TEACHER_PASSWORD（见下文）
 docker compose up -d
 docker compose ps
 ```
 
-默认会从 `ghcr.milu.moe/alumos/game-supermarket:v1.3.11` 拉取固定版本。安全组和防火墙放行 TCP 18790，然后打开：
+默认会从 `ghcr.milu.moe/alumos/game-supermarket:v1.3.12` 拉取固定版本。安全组和防火墙放行 TCP 18790，然后打开：
 
 - 教师入口：`http://你的VPS公网IP:18790/teacher.html`
 - 学生入口：`http://你的VPS公网IP:18790/`
@@ -61,7 +61,7 @@ SUPERMARKET_PUBLIC_URL=http://你的VPS公网IP:18790
 加速源暂不可用或刚发布尚未同步时，将 `.env` 中的镜像改为 GHCR 官方地址：
 
 ```dotenv
-SUPERMARKET_IMAGE=ghcr.io/alumos/game-supermarket:v1.3.11
+SUPERMARKET_IMAGE=ghcr.io/alumos/game-supermarket:v1.3.12
 ```
 
 然后执行：
@@ -74,6 +74,12 @@ docker compose up -d
 `ghcr.milu.moe` 仅作为拉取加速源；Actions 始终发布到 `ghcr.io`。公开镜像不需要在 VPS 登录 GHCR。若出现 `denied`，先确认 GitHub 软件包已设为 Public。
 
 ## 日常管理和数据
+
+教师后台的课堂列表旁提供“删除所选课堂”和“清理已结束课堂”。当前接入课堂先点“结束课堂”；输入完整课堂名或“清理已结束课堂”后，才永久删除对应课堂及学生作品。需要保留的课堂可先用教师端导出或按下文备份。删除不会重置后台密码或删除其他进行中的课堂，空出的 SQLite 数据页会供新课堂复用，数据库文件不一定立即缩小。
+
+后端使用 Node.js 原生 HTTP、SQLite 和 SSE，无额外数据库服务。地图与音效在客户端执行。自 v1.3.12 起，教师列表只查询作品摘要，打开详情时才读取所选学生的完整历史；增量查询从数据库筛选，学生保存不再引发全班确认。容器内存会受到历史作品数量、导出量和 Node.js 内存回收影响，镜像体积也不等于运行内存；不能只从截图中的累计 CPU 时间判断负载。
+
+可用 `docker stats --no-stream` 查看实际资源使用，用 `docker compose logs --tail=100` 查看是否有异常。更新镜像后容器会重建；先在真实课堂中观察多客户端连接、后台查看作品时的内存与响应，再按 VPS 情况配置资源，不必为本项目额外安装 Redis 或 MySQL。
 
 ```sh
 docker compose ps                 # 查看运行与健康状态
@@ -132,18 +138,18 @@ location / {
 
 ## 发布新版本（维护者）
 
-GitHub Actions 配置位于 `.github/workflows/image.yml`。代码推送到仓库后，推送形如 `v1.3.11` 的正式版本标签即可触发：
+GitHub Actions 配置位于 `.github/workflows/image.yml`。代码推送到仓库后，推送形如 `v1.3.12` 的正式版本标签即可触发：
 
 ```sh
-git tag v1.3.11
-git push origin v1.3.11
+git tag v1.3.12
+git push origin v1.3.12
 ```
 
-工作流先在 Node.js 24 上执行 `npm test`，成功后构建 `linux/amd64` 和 `linux/arm64`，使用仓库的 `GITHUB_TOKEN` 向 GHCR 推送镜像。发布名称会自动转成小写，`v1.3.11` 对应：
+工作流先在 Node.js 24 上执行 `npm test`，成功后构建 `linux/amd64` 和 `linux/arm64`，使用仓库的 `GITHUB_TOKEN` 向 GHCR 推送镜像。发布名称会自动转成小写，`v1.3.12` 对应：
 
 ```text
-ghcr.io/alumos/game-supermarket:v1.3.11
-ghcr.io/alumos/game-supermarket:1.3.11
+ghcr.io/alumos/game-supermarket:v1.3.12
+ghcr.io/alumos/game-supermarket:1.3.12
 ghcr.io/alumos/game-supermarket:latest
 ```
 
@@ -151,7 +157,7 @@ ghcr.io/alumos/game-supermarket:latest
 
 以后发布新版本前同步更新 `compose.yaml` 的固定 tag 与本文示例，再推送新 tag。已经发布的 tag 应保持不变，修复使用新的版本号。VPS 更新时先备份，然后把 `.env` 中的 `SUPERMARKET_IMAGE` 改为新固定 tag。
 
-从 v1.3.0～v1.3.10 更新时只需将镜像 tag 改为 `v1.3.11`，保留原有密码和数据卷。若从 v1.2.0 或更早版本更新，还需在现有 Compose `environment` 中加入 `SUPERMARKET_TEACHER_PASSWORD: ${SUPERMARKET_TEACHER_PASSWORD:-}`（或换用本版本 Compose 文件并保留自己的端口等配置），在 `.env` 中设好密码，再执行：
+从 v1.3.0～v1.3.11 更新时只需将镜像 tag 改为 `v1.3.12`，保留原有密码和数据卷。若从 v1.2.0 或更早版本更新，还需在现有 Compose `environment` 中加入 `SUPERMARKET_TEACHER_PASSWORD: ${SUPERMARKET_TEACHER_PASSWORD:-}`（或换用本版本 Compose 文件并保留自己的端口等配置），在 `.env` 中设好密码，再执行：
 
 ```sh
 docker compose pull

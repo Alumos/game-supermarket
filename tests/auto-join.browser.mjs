@@ -66,13 +66,13 @@ try{
  // must never become editable or uploadable under the newly issued identity.
  let loadFailures=0;
  const failWorks=route=>{loadFailures++;return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'temporary classroom works unavailable'})});};
- await first.route('**/api/student/works',failWorks);
+ await first.route('**/api/student/works?history=0',failWorks);
  const retryRoom=await createRoom('自动入场验收 · 载入失败恢复');await teacher.locator('#practice').click();
  await poll(()=>loadFailures>0,'new classroom works load deliberately fails');
  const retryLearner=await joined(first,firstContext,retryRoom.id,'A1');assert.notEqual(retryLearner.id,firstLearner.id);
  assert.equal(await first.locator('#runButton').isDisabled(),true);assert.equal(await first.locator('#flowNodes .flow-node').count(),2);assert.doesNotMatch(await first.locator('#flowNodes').textContent(),/A1 原课堂草稿/);
  let retryWorks=await works(retryRoom.id);assert.equal(retryWorks.drafts.some(draft=>draft.graph.nodes.some(node=>node.label==='A1 原课堂草稿，刷新后保留')),false);assert.equal(retryWorks.runs.length,0);await screenshot(first,'auto-load-failure-protected');
- await first.unroute('**/api/student/works',failWorks);
+ await first.unroute('**/api/student/works?history=0',failWorks);
  await poll(()=>first.locator('#runButton').isEnabled(),'works load automatically retries and enables the new classroom');
  assert.equal(await first.locator('#flowNodes .flow-node').count(),2);assert.doesNotMatch(await first.locator('#flowNodes').textContent(),/A1 原课堂草稿/);
  await dragAction(first,'move_crate');await first.locator('#nodeLabel').fill('新课堂载入恢复后的独立草稿');await first.locator('#nodeLabel').blur();
