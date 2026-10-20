@@ -76,7 +76,7 @@ function renderChapter(){
   $('#taskGoal').textContent=t.goal;$('#metrics').hidden=!delivery;$('#deliveryOrders').hidden=!delivery;$('#coordinateTools').hidden=!delivery;
   renderPracticeTasks();
   $('#editorTitle').textContent=delivery?'我的配送程序':'安排我的工作';$('#runButton').textContent=delivery?'▶ 运行配送程序':'▶ 运行流程图';
-  $('#submitButton').textContent=state.chapter===1?'感受顺序在问题解决中的重要性':state.chapter===2?'理解顺序结构的特点':'提交评价';
+  $('#submitButton').textContent='提交评价';
   $('#toolHint').textContent=delivery?'拖动积木到画布，按顺序拼接。':state.chapter===1?'直接拖动地图中的饮料箱，流程图会自动记录。':'把操作卡拖入画布；拖回工具区可以删除。';
   $('#paletteHint').textContent=delivery?'拖动积木到画布':state.chapter===1?'完成交换后，在这里思考':'拖动蓝色卡片到画布';
   $('#executionHint').textContent=delivery?'从上到下，依次执行配送积木':'按箭头顺序，一步一步执行';
@@ -897,7 +897,8 @@ $('#selfRatingGroup').addEventListener('change',renderSelfRating);
 $('#submitButton').onclick=()=>{
   if(!editable()||submittingAssessment)return;
   $('#submitForm').reset();
-  $('#submitRatingGoal').textContent=`活动 ${state.chapter} · ${LEARNING_GOALS[state.chapter]}`;
+  const ratingPrompts={1:'感受顺序在问题解决中的重要性',2:'理解顺序结构的特点',3:LEARNING_GOALS[3],4:LEARNING_GOALS[4]};
+  $('#submitRatingGoal').textContent=`活动 ${state.chapter} · ${ratingPrompts[state.chapter]}`;
   renderSelfRating();$('#submitDialog').showModal();
 };
 $('#submitForm').onsubmit=async e=>{

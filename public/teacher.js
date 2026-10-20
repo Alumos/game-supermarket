@@ -34,41 +34,33 @@ const learningGoal=chapterId=>engine.LEARNING_GOALS[chapterId];
 const assessmentTime=time=>new Date(time).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
 function assessmentStars(sub){const stars=sub?.selfAssessment?.stars;return stars?`<span class="assessment-stars" data-stars="${stars}" aria-label="${stars} 星，共 3 星"><span aria-hidden="true">${'★'.repeat(stars)}${'☆'.repeat(3-stars)}</span><b>${stars} 星</b></span>`:'<span class="assessment-unrated">未自评</span>';}
 function tableAssessment(l,ch,taskId,stats){const item=(taskId,stats)=>`<div class="assessment-item" data-assessment-task="${E(taskId||'')}">${ch===3?`<span class="assessment-task-name">${E(practiceTaskName(taskId))}</span>`:''}${assessmentStars(stats.latestAssessment)}</div>`;return ch===3&&!taskId?`<div class="assessment-task-grid">${practiceTasks.map(t=>item(t.id,groupStats(l,ch,t.id))).join('')}</div>`:item(taskId,stats);}
-function radarChart(values,size=150){
-  const goals=['顺序结构','转换流程','算法思维','算法优化'];
-  const cx=size/2,cy=size/2,radius=size/2-28;
-  const max=3,rings=[1,2,3];
-  const point=(i,r)=>{const angle=Math.PI/2-i*2*Math.PI/goals.length;return [cx+r*Math.cos(angle),cy-r*Math.sin(angle)];};
-  let grid='',axes='';
-  for(const ring of rings){const pts=goals.map((_,i)=>point(i,radius*ring/max).map(n=>n.toFixed(1)).join(',')).join(' ');grid+=`<polygon points="${pts}" fill="none" stroke="#d8e0d0" stroke-width="1"/>`;}
-  for(let i=0;i<goals.length;i++){const [x,y]=point(i,radius);axes+=`<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#d8e0d0" stroke-width="1"/>`;}
-  const dataPts=goals.map((_,i)=>{const v=Math.max(0,Math.min(max,Number(values[i])||0));return point(i,v?radius*v/max:0).map(n=>n.toFixed(1)).join(',');}).join(' ');
-  let labels='';
-  for(let i=0;i<goals.length;i++){const [x,y]=point(i,radius+16);labels+=`<text x="${x.toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="middle" font-size="11" fill="#4e6655">${goals[i]}</text>`;}
-  return `<svg viewBox="0 0 ${size} ${size}" class="radar" width="${size}" height="${size}" role="img" aria-label="学习目标雷达图">${grid}${axes}<polygon points="${dataPts}" fill="#2d7a62" fill-opacity=".28" stroke="#2d7a62" stroke-width="2"/>${goals.map((_,i)=>{const v=Math.max(0,Math.min(max,Number(values[i])||0));const [x,y]=point(i,v?radius*v/max:0);return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="#2d7a62"/>`;}).join('')}${labels}</svg>`;
-}
-function learnerGoalStars(l){
-  const stars={1:0,2:0,3:0,4:0};
+function learnerGoalRatings(l){
+  const ratings={1:null,2:null,3:null,4:null};
   for(const sub of data.submissions||[]){
     if(sub.learnerId!==l.id||sub.source!=='student'||!sub.selfAssessment)continue;
-    const g=Number(sub.selfAssessment.goalId);if(![1,2,3,4].includes(g))continue;
-    if(!stars[g]||(sub.createdAt||0)>=(stars['_t'+g]||0)){stars[g]=sub.selfAssessment.stars;stars['_t'+g]=sub.createdAt||0;}
+    const goal=Number(sub.selfAssessment.goalId),stars=Number(sub.selfAssessment.stars);
+    if(![1,2,3,4].includes(goal)||![1,2,3].includes(stars))continue;
+    const rating={stars,createdAt:Number(sub.createdAt)||0};
+    if(!ratings[goal]||rating.createdAt>=ratings[goal].createdAt)ratings[goal]=rating;
   }
-  return stars;
+  return ratings;
 }
-function goalStarsCell(l,goal){const stars=learnerGoalStars(l)[goal];return stars?`<span class="assessment-stars" data-stars="${stars}"><span aria-hidden="true">${'★'.repeat(stars)}${'☆'.repeat(3-stars)}</span><b>${stars} 星</b></span>`:'<span class="assessment-unrated">未自评</span>';}
+function goalStarsCell(ratings,goal){
+  const rating=ratings[goal];
+  if(!rating)return '<div class="overview-rating overview-rating-empty"><span class="assessment-unrated">尚未自评</span></div>';
+  return `<div class="overview-rating" data-goal="${goal}"><span class="assessment-stars" data-stars="${rating.stars}" aria-label="${rating.stars} 星，共 3 星"><span aria-hidden="true">${'★'.repeat(rating.stars)}${'☆'.repeat(3-rating.stars)}</span><b>${rating.stars} / 3 星</b></span><time>${assessmentTime(rating.createdAt)}</time></div>`;
+}
 function renderAssessmentOverview(){
   if(!session){toast('请先选择并打开一个课堂');return;}
   const list=[...learners].sort((a,b)=>learnerSort(a).localeCompare(learnerSort(b),'zh-Hans',{numeric:true}));
-  const rated=list.filter(l=>[1,2,3,4].some(g=>learnerGoalStars(l)[g]>0)).length;
-  const averages=[1,2,3,4].map(goal=>{
-    const vals=list.map(l=>learnerGoalStars(l)[goal]).filter(Boolean);
-    return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;
-  });
-  const summary=`<div class="assessment-summary"><div class="assessment-summary-radar">${radarChart(averages,190)}<small>本班平均（0～3 星）</small></div><div class="assessment-summary-meta"><strong>${list.length}</strong><span>名学生</span><strong>${rated}</strong><span>已提交自评</span><strong>${list.length-rated}</strong><span>尚未自评</span></div></div>`;
-  const rows=list.map(l=>`<tr><td class="overview-name"><strong>${E(learnerLabel(l))}</strong></td><td class="overview-radar">${radarChart([1,2,3,4].map(g=>learnerGoalStars(l)[g]),120)}</td><td>${goalStarsCell(l,1)}</td><td>${goalStarsCell(l,2)}</td><td>${goalStarsCell(l,3)}</td><td>${goalStarsCell(l,4)}</td></tr>`).join('');
-  const goalsHeader=[1,2,3,4].map(g=>`<th>${E(learningGoal(g))}</th>`).join('');
-  const table=`<div class="table-wrap assessment-table-wrap"><table><thead><tr><th>学生</th><th>四维雷达</th>${goalsHeader}</tr></thead><tbody>${rows||'<tr><td colspan="6" class="table-empty">还没有学生提交自评。</td></tr>'}</tbody></table></div>`;
+  const studentRatings=list.map(learner=>({learner,ratings:learnerGoalRatings(learner)}));
+  const ratedPeople=studentRatings.filter(item=>[1,2,3,4].some(goal=>item.ratings[goal])).length;
+  const ratedItems=studentRatings.reduce((total,item)=>total+[1,2,3,4].filter(goal=>item.ratings[goal]).length,0);
+  const expectedItems=list.length*4;
+  const summary=`<div class="assessment-summary"><div class="assessment-summary-meta"><div><strong>${list.length}</strong><span>名学生</span></div><div><strong>${ratedPeople}</strong><span>已提交自评</span></div><div><strong>${list.length-ratedPeople}</strong><span>尚未自评</span></div><div><strong>${expectedItems?Math.round(ratedItems/expectedItems*100):0}%</strong><span>四项评价完成度</span></div></div><p>表中显示每名学生四个活动的最新自评；竖向滚动可查看全部学生。</p></div>`;
+  const rows=studentRatings.map(({learner,ratings})=>{const count=[1,2,3,4].filter(goal=>ratings[goal]).length;return `<tr><td class="overview-name"><strong>${E(learnerLabel(learner))}</strong><span>${count} / 4 项已评价</span></td><td>${goalStarsCell(ratings,1)}</td><td>${goalStarsCell(ratings,2)}</td><td>${goalStarsCell(ratings,3)}</td><td>${goalStarsCell(ratings,4)}</td></tr>`;}).join('');
+  const goalsHeader=[1,2,3,4].map(goal=>`<th><small>活动 ${goal}</small><b>${E(learningGoal(goal))}</b></th>`).join('');
+  const table=`<div class="assessment-table-wrap"><table><thead><tr><th>学生</th>${goalsHeader}</tr></thead><tbody>${rows||'<tr><td colspan="5" class="table-empty">还没有学生加入课堂。</td></tr>'}</tbody></table></div>`;
   $('#assessment-body').innerHTML=summary+table;
   $('#assessment-dialog').showModal();
 }

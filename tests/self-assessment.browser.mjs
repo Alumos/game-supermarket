@@ -18,6 +18,7 @@ const {server}=createClassroomServer({dataDir,teacherKey:'isolated-self-assessme
 // Screenshots are opt-in and always temporary, never repository artifacts.
 const output=process.env.SUPERMARKET_TEST_OUTPUT?resolve(process.env.SUPERMARKET_TEST_OUTPUT):null;
 if(output){assert.ok(output.startsWith('/tmp/')||output.startsWith('/private/tmp/'),'SUPERMARKET_TEST_OUTPUT must be under /tmp');mkdirSync(output,{recursive:true});}
+const prompts={1:/感受顺序在问题解决中的重要性/,2:/理解顺序结构的特点/,3:/算法思维/,4:/算法优化/};
 const goals={1:/顺序结构.*特点/,2:/步骤.*流程图/,3:/算法思维/,4:/算法优化/};
 const checks=[],errors=[];
 let browser,student,teacher,session;
@@ -52,8 +53,9 @@ try{
   await poll(()=>student.locator('#submitButton').isEnabled(),`chapter ${id} opens directly`);
  }
  async function openRating(id){
+  assert.equal((await student.locator('#submitButton').textContent()).trim(),'提交评价');
   await student.locator('#submitButton').tap();await student.locator('#submitDialog').waitFor({state:'visible'});
-  assert.match(await student.locator('#submitRatingGoal').textContent(),goals[id]);
+  assert.match(await student.locator('#submitRatingGoal').textContent(),prompts[id]);
   assert.equal(await student.locator('#selfRatingGroup input[name=selfStars]').count(),3);
   assert.deepEqual(await student.locator('#selfRatingGroup input[name=selfStars]').evaluateAll(inputs=>inputs.map(input=>input.value)),['1','2','3']);
   assert.equal(await student.locator('#explanation,#submitPrompt,#submitHint').count(),0);
@@ -184,18 +186,22 @@ try{
   await teacher.locator('#detail-dialog [data-close]').click();
  }
  checks.push('teacher shows latest chapter-specific rating and legacy text; chapter 3 table and detail isolate tea and fish ratings');
- // Evaluation overview aggregates every task's stars and draws a radar chart.
+ // Evaluation overview presents all four ratings in a wide, vertically scrollable table.
  await teacher.locator('#assessment-overview').click();
  await teacher.locator('#assessment-dialog').waitFor({state:'visible'});
  const overview=teacher.locator('#assessment-body');
- assert.equal(await overview.locator('.assessment-summary-radar .radar').count(),1,'overview draws a class-average radar');
+ assert.equal(await overview.locator('.radar').count(),0,'overview contains no radar charts');
+ assert.equal(await overview.locator('.assessment-table-wrap thead th').count(),5,'overview shows one student column and four activity columns');
  assert.equal(await overview.locator('.assessment-table-wrap tbody tr').count(),1,'overview lists the single student');
- assert.equal(await overview.locator('.assessment-table-wrap tbody .radar').count(),1,'overview draws a per-student radar');
- for(const stars of [3,2,3,2])await overview.locator(`.assessment-table-wrap tbody .assessment-stars[data-stars="${stars}"]`).nth(0).waitFor();
+ for(const [goal,stars] of [[1,3],[2,2],[3,3],[4,2]])assert.equal(await overview.locator(`.assessment-table-wrap tbody .overview-rating[data-goal="${goal}"] .assessment-stars[data-stars="${stars}"]`).count(),1,'each latest activity rating is visible');
  assert.equal(await overview.locator('.assessment-table-wrap tbody .assessment-unrated').count(),0,'every goal has a rating in the overview');
+ const overviewLayout=await teacher.locator('#assessment-dialog').evaluate(el=>({width:el.getBoundingClientRect().width,viewport:innerWidth,tableWidth:el.querySelector('table').getBoundingClientRect().width,bodyHeight:el.querySelector('#assessment-body').getBoundingClientRect().height}));
+ assert.ok(overviewLayout.width>overviewLayout.viewport*.94,'overview uses nearly the full viewport width');
+ assert.ok(overviewLayout.tableWidth>=1040,'ratings table uses its full horizontal width');
+ assert.ok(overviewLayout.bodyHeight>600,'overview keeps a large visible table area');
  if(output)await teacher.screenshot({path:join(output,'self-assessment-overview.png'),fullPage:true});
  await teacher.locator('#assessment-dialog [data-close]').click();
- checks.push('evaluation overview aggregates every task rating into a radar chart and star columns');
+ checks.push('evaluation overview shows all four latest ratings in a full-width table without radar charts');
  if(output){await command('practice');await poll(()=>student.locator('#submitButton').isEnabled(),'screenshot practice');await openRating(2);await chooseStars(2);await student.screenshot({path:join(output,'self-assessment-tablet.png')});await student.locator('#submitDialog .dialog-close').tap();await history();await student.screenshot({path:join(output,'self-assessment-history.png')});}
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({ok:true,checks,pageErrors:errors,ratings:studentSubs(await works()).map(sub=>({chapterId:sub.chapterId,taskId:sub.taskId,selfAssessment:sub.selfAssessment,legacy:!!sub.explanation})),screenshots:output},null,2));
