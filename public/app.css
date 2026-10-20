@@ -209,6 +209,8 @@ body{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidd
 }
 
 /* Keep all four practice tasks visible, including in a teacher-led classroom. */
+.scene-heading .sound-toggle{flex:0 0 auto;margin-left:auto;min-height:34px;padding:5px 7px;border:1px solid #bdcfb7;border-radius:7px;background:#f3f5e9;color:#47694e;font-size:11px;white-space:nowrap}
+.scene-heading .sound-toggle[aria-pressed=false]{background:transparent;color:#7b8874;border-color:#d1d9c7}
 .task-line.practice-mode{flex-direction:column;align-items:stretch;gap:7px}
 .practice-tasks{display:flex;gap:6px;flex-wrap:wrap}
 .practice-tasks button{flex:1;min-width:55px;min-height:36px;padding:5px 8px;border:1px solid #a8c7dd;border-radius:7px;background:#e6f1fb;color:#285e81;font-size:12px;font-weight:650;white-space:nowrap}

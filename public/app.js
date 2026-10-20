@@ -3,8 +3,10 @@ import {SupermarketWorld} from './world.js';
 import * as db from './db.js';
 import {dragFootprint,dropZone,insertionAt,movedInsertionIndex} from './drag-drop.mjs';
 import {withRequestTimeout} from './request-timeout.mjs';
+import {gameAudio} from './audio.js';
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+gameAudio.bindButton($('#soundButton'));
 const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-${Date.now().toString(36)}-${Array.from(globalThis.crypto?.getRandomValues?.(new Uint32Array(3))||[Math.random()*1e9,Math.random()*1e9]).map(n=>n.toString(36)).join('')}`, esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaultTask=ch=>['','drink-swap','fresh-juice','tea','delivery'][ch];
 const teacherDemoRequested=new URLSearchParams(location.search).get('mode')==='demo';
@@ -505,6 +507,7 @@ async function selectPracticeTask(taskId){
 }
 
 async function changeChapter(ch,taskId=defaultTask(ch),{fromTeacher=false,transition=true}={}){
+  gameAudio.silence();
   cancelCardDrag?.();finishFlowFormation();
   if($('#submitDialog').open)$('#submitDialog').close();
   if(!TASKS.some(t=>t.chapterId===ch&&t.id===taskId))taskId=defaultTask(ch);
@@ -554,6 +557,7 @@ async function animateResult(result,{demo=false,graph=snapshot(),record=null}={}
   world.stop();world.reset();world.setState(current);world.setRoutes([]);paintMetrics(metrics,current);updateControls();
   for(const step of result.trace){
     if(!await waitToContinue(epoch))return false;state.activeNode=step.nodeId;renderGraph();
+    gameAudio.step(step.actionId);
     revealNode(step.nodeId);
     $('#dialogueText').textContent=step.actionId==='start'?'从初始状态开始。':step.actionId==='end'?(isDelivery()?'已经执行到程序末尾。':'按照箭头，走到了结束框。'):`${demo?'师傅示范':'正在执行'}：${step.label||actionLabel(step)}`;
     if(['start','end'].includes(step.actionId)&&!await showTerminalStep(epoch))return false;
@@ -580,6 +584,7 @@ async function animateResult(result,{demo=false,graph=snapshot(),record=null}={}
   }
   if(epoch!==state.runEpoch)return false;
   state.activeNode=null;state.errorNode=result.errorNodeId||null;state.demo=false;
+  gameAudio.result(!!result.completed&&!result.metrics.failed);
   if(!demo)paintMetrics(result.metrics,result.finalState);world.setState(result.finalState);renderGraph();
   if(demo){$('#dialogueText').textContent='示范结束了。请在中间画布安排步骤，再运行一次。';world.reset();resetMetrics();toast('示范不会写入你的作品或成绩');}
   else showResult(result);
@@ -610,12 +615,13 @@ async function storeRun(record){
   await enqueue({kind:'run',key,graph:record.graph,run:record});
 }
 async function stopRun(status='stopped',reason='学生主动停止'){
+  gameAudio.silence();
   if(!state.running&&!state.demo)return;state.runEpoch++;world.stop();const record=state.running;state.running=null;state.demo=false;state.activeNode=null;state.userPaused=false;
   if(record){record.status=status;record.valid=false;record.reason=reason;record.result={completed:false,trace:simulate(record.graph).trace.slice(0,record.executedNodes.length),message:reason};record.metrics=null;await storeRun(record);}
   world.reset();resetMetrics();renderGraph();updateControls();if(status==='stopped')toast('已停止，本次执行记录已保留');
 }
 $('#runButton').onclick=startRun;
-$('#pauseButton').onclick=()=>{if(state.teacherPaused)return;state.userPaused=!state.userPaused;if(state.userPaused)world.pause();else world.resume();updateControls();};
+$('#pauseButton').onclick=()=>{if(state.teacherPaused)return;state.userPaused=!state.userPaused;if(state.userPaused){world.pause();gameAudio.silence();}else world.resume();updateControls();};
 $('#stopButton').onclick=()=>stopRun();
 $('#demoButton').onclick=async()=>{
   if(state.running||state.demo)return;
@@ -708,7 +714,7 @@ async function applyRoom(data){
   if(!changed&&state.session.phase==='explain'&&previous?.phase==='practice')await stopRun('interrupted','老师开始讲解');
   if(state.session.phase==='ended'&&previous?.phase!=='ended'){await stopRun('interrupted','课堂已结束');await persistNow({kind:'archive'});}
   state.teacherPaused=state.session.phase==='paused';
-  if(state.running||state.demo){if(state.teacherPaused)world.pause();else if(!state.userPaused)world.resume();}
+  if(state.running||state.demo){if(state.teacherPaused){world.pause();gameAudio.silence();}else if(!state.userPaused)world.resume();}
   renderNotice();renderConnection();updateControls();
   api('/api/student/ack',{method:'POST',body:{version:state.session.version,chapterId:state.chapter}}).catch(()=>{});
 }

@@ -1,4 +1,5 @@
 import { initialState, DELIVERY_MAP, DELIVERY_RULES_VERSION, actionLabel } from '../shared/engine.mjs';
+import { gameAudio } from './audio.js';
 
 // One source pixel is kept visible at every scale. All art is drawn locally;
 // classroom play needs no image host, font download, or rendering framework.
@@ -46,9 +47,9 @@ export class SupermarketWorld {
   setMode(mode){this.mode=mode||'explore';if(this.mode!=='explore'&&this.anim?.manual)this.stop();}
   setRoutes(routes){this.routes=Array.isArray(routes)?clone(routes):[];}
   setSelectTargets(targets){this.targets=Array.isArray(targets)?targets.map(t=>typeof t==='string'?t:t.id||t.value||t.target):[];}
-  pause(){this.paused=true;}
-  resume(){this.paused=false;this.last=performance.now();}
-  stop(){if(this.anim){const a=this.anim;this.anim=null;this.actor.moving=false;a.resolve?.({cancelled:true});}this.paused=false;}
+  pause(){this.paused=true;gameAudio.pauseEvent(this);}
+  resume(){this.paused=false;this.last=performance.now();gameAudio.resumeEvent(this);}
+  stop(){gameAudio.stopEvent(this);if(this.anim){const a=this.anim;this.anim=null;this.actor.moving=false;a.resolve?.({cancelled:true});}this.paused=false;}
   reset(){this.stop();this.state=clone(this.initial);Object.assign(this.actor,this.state.position||{x:10,y:13},{moving:false,face:'up',walk:0});this.trail=[];this.flash=null;}
   destroy(){this.stop();this.destroyed=true;cancelAnimationFrame(this.raf);this.resizeObserver.disconnect();this.canvas.removeEventListener('pointerdown',this.pointerHandler);window.removeEventListener('keydown',this.keyHandler);this.canvas.remove();}
   capture(){return this.canvas.toDataURL('image/png');}
@@ -60,6 +61,7 @@ export class SupermarketWorld {
     const seconds=Math.max(.2,Number(event.duration)|| (event.type==='walk'?length*.38:.85));
     return new Promise(resolve=>{
       this.anim={event:clone(event),points,length,elapsed:0,duration:Math.max(200,seconds*1000/Math.max(.25,Number(speed)||2)),resolve,applied:false,startElapsed:Number(this.state.elapsed)||0};
+      if(event.type!=='walk'||length>0)gameAudio.startEvent(this,{...event,chapterId:this.chapterId,taskId:this.taskId},{duration:this.anim.duration});
       this.actor.moving=event.type==='walk';
       if(event.roadDelay)this.flash={text:`${event.roadDelay.name} · 额外 ${event.roadDelay.minutes} 分钟`,until:this.time+2};
       if(event.type==='walk'&&points.length)Object.assign(this.actor,points[0]);
@@ -96,6 +98,7 @@ export class SupermarketWorld {
   }
   _advance(dt){
     const a=this.anim;if(!a)return;a.elapsed+=dt;const t=Math.min(1,a.elapsed/a.duration);
+    gameAudio.advanceEvent(this,a.elapsed,a.duration);
     if(a.event.type==='walk'){
       if(!a.manual&&this.chapterId===4&&Number.isFinite(a.event.state?.elapsed))this.state.elapsed=a.startElapsed+(a.event.state.elapsed-a.startElapsed)*t;
       let d=t*a.length,index=0;for(;index<a.points.length-1;index++){const p=a.points[index],q=a.points[index+1],len=Math.hypot(q.x-p.x,q.y-p.y);if(d<=len||index===a.points.length-2){const u=len?Math.min(1,d/len):1;const nx=p.x+(q.x-p.x)*u,ny=p.y+(q.y-p.y)*u;const dx=nx-this.actor.x,dy=(ny-this.actor.y)*(this.chapterId===4?-1:1);if(Math.abs(dx)+Math.abs(dy)>.0001)this.actor.face=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up');Object.assign(this.actor,{x:nx,y:ny,walk:a.elapsed/120,moving:true});if(!a.manual&&this.chapterId===4){const last=this.trail[this.trail.length-1];if(!last||Math.hypot(last.x-nx,last.y-ny)>.35)this.trail.push({x:nx,y:ny});}break;}d-=len;}
@@ -104,7 +107,7 @@ export class SupermarketWorld {
       if(a.event.state)this.state=clone(a.event.state);
       if(a.points.length&&a.event.type==='walk')Object.assign(this.actor,a.points[a.points.length-1]);
       if(a.event.state?.position&&!a.manual)Object.assign(this.actor,a.event.state.position);
-      this.actor.moving=false;this.anim=null;a.resolve?.({cancelled:false});
+      gameAudio.stopEvent(this);this.actor.moving=false;this.anim=null;a.resolve?.({cancelled:false});
       if(a.onDone)a.onDone();
     }
   }
@@ -125,6 +128,7 @@ export class SupermarketWorld {
     if(this.mode!=='explore')return;this.stop();const points=this._path(this.actor,p);const length=points.length-1;
     const destination=points.at(-1);this.flash={text:this.chapterId===4?`探路（${destination.x},${destination.y}）`:'探路中 · 不改变任务状态',until:this.time+1.3};
     this.anim={event:{type:'walk'},points,length,elapsed:0,duration:Math.max(160,length*135),manual:true,resolve:()=>{},onDone:done};this.actor.moving=length>0;
+    if(length>0)gameAudio.startEvent(this,{type:'walk',chapterId:this.chapterId,taskId:this.taskId},{duration:this.anim.duration});
     this.callbacks.onExplore?.({x:points.at(-1).x,y:points.at(-1).y});
   }
   _screenPoint(e){

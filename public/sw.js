@@ -1,8 +1,8 @@
 // Only the public student application shell is cached. Classroom/API responses,
 // teacher pages, exports, credentials and event streams always use the network.
 const CACHE_PREFIX = 'supermarket-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}1.3.9`;
-const SHELL = ['/', '/index.html', '/app.js', '/app.css', '/world.js', '/db.js', '/drag-drop.mjs', '/request-timeout.mjs', '/shared/engine.mjs'];
+const CACHE_NAME = `${CACHE_PREFIX}1.3.10`;
+const SHELL = ['/', '/index.html', '/app.js', '/app.css', '/world.js', '/audio.js', '/db.js', '/drag-drop.mjs', '/request-timeout.mjs', '/shared/engine.mjs'];
 const STATIC_PATHS = new Set(SHELL);
 const STUDENT_PAGES = new Set(['/', '/index.html']);
 
