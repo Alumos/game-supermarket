@@ -49,10 +49,10 @@ try{
   await student.locator('#transition').waitFor({state:'hidden'});await poll(()=>student.locator('[data-action=wash_orange]').isEnabled(),'fruit palette unlocked');
   const learner=(await api(studentContext,'/api/me')).learner;
   assert.equal(learner.sessionId,session.id);assert.match(await student.locator('#sceneTitle').textContent(),/水果/);
-  for(const action of ['wash_orange','peel_cut','add_orange','start_juicer','pack_juice'])await append(action);
+  for(const action of ['wash_orange','peel_cut','add_orange','start_juicer'])await append(action);
   const order=await actions().evaluateAll(elements=>elements.map(el=>el.dataset.node));
   const works=()=>api(teacherContext,`/api/sessions/${session.id}/works`);
-  const sorting=await poll(async()=>{const data=await works();return data.drafts.find(d=>d.learnerId===learner.id&&d.graph.flowchartStage==='sorting'&&d.graph.nodes.filter(n=>n.kind==='action').length===5);},'sorting draft reaches classroom SQLite');
+  const sorting=await poll(async()=>{const data=await works();return data.drafts.find(d=>d.learnerId===learner.id&&d.graph.flowchartStage==='sorting'&&d.graph.nodes.filter(n=>n.kind==='action').length===4);},'sorting draft reaches classroom SQLite');
   assert.equal(sorting.graph.edges.length,0);
   await teacher.locator('[data-work-chapter="2"]').click();
   await poll(()=>teacher.locator(`#learners tr[data-learner-row="${learner.id}"]`).textContent().then(text=>text.includes(`草稿 v${sorting.revision} 已保存`)),'teacher receives sorting draft without page reload');
@@ -63,14 +63,14 @@ try{
   assert.match(await detail.textContent(),/学生正在排序，形成流程图后可回放/);
   assert.equal(await detail.locator('[data-replay="start"],.world-preview').count(),0,'unformed sorting cannot be replayed');
   await teacher.screenshot({path:join(output,'fruit-teacher-sorting.png'),fullPage:true});await teacher.locator('#detail-dialog [data-close]').click();
-  checks.push('teacher opens chapter 2 practice; automatically joined student drags five cards; synced teacher view preserves sorting order without terminals, arrows, errors or replay');
+  checks.push('teacher opens chapter 2 practice; automatically joined student drags four cards; synced teacher view preserves sorting order without terminals, arrows, errors or replay');
 
   await student.locator('#chainButton').click();await student.waitForFunction(()=>document.querySelector('#flowCanvas').classList.contains('flow-forming'));await idle();
-  const formed=await poll(async()=>{const data=await works();return data.drafts.find(d=>d.learnerId===learner.id&&d.graph.flowchartStage==='formed'&&d.graph.edges.length===6);},'formed draft reaches classroom SQLite');
+  const formed=await poll(async()=>{const data=await works();return data.drafts.find(d=>d.learnerId===learner.id&&d.graph.flowchartStage==='formed'&&d.graph.edges.length===5);},'formed draft reaches classroom SQLite');
   await poll(()=>teacher.locator(`#learners tr[data-learner-row="${learner.id}"]`).textContent().then(text=>text.includes(`草稿 v${formed.revision} 已保存`)),'teacher receives formed draft without page reload');
   await teacher.locator(`[data-view="${learner.id}"]`).click();await detail.locator('.world-preview canvas').waitFor();
   assert.equal(await detail.locator('.graph .flow-node.start,.graph .flow-node.end').count(),2);
-  assert.equal(await detail.locator('.graph .flow-arrow').count(),6);
+  assert.equal(await detail.locator('.graph .flow-arrow').count(),5);
   assert.equal(await detail.locator('.run-error,.flow-node.error').count(),0);
   assert.deepEqual(await detail.locator('.graph .flow-node.action').evaluateAll(elements=>elements.map(el=>el.dataset.node)),order);
   await detail.locator('[data-replay="start"]').click();

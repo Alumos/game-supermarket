@@ -238,6 +238,7 @@ body{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidd
 .practice-tasks button:focus-visible{outline:3px solid #bb872e;outline-offset:2px}
 
 /* A deliberate three-star self-assessment, with large touch targets. */
+#submitButton{white-space:normal;line-height:1.3}
 #submitDialog{width:min(480px,92vw)}
 #submitDialog h2{font-size:25px;margin:13px 0 18px}
 #submitDialog .rating-goal{padding:13px 16px;margin:0 0 20px;border:1px solid #d8dfc9;border-radius:9px;background:#f2f5e8;font-size:16px;font-weight:650;color:#345942;line-height:1.7}

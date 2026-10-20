@@ -119,12 +119,12 @@ try{
 
   await page.locator('#clearButton').tap();
   for(const action of availableActions(2,'fresh-juice'))await addAction(action.actionId);
-  const juice=await finishRun({animated:true,label:'five-step fresh orange juice'});
+  const juice=await finishRun({animated:true,label:'four-step fresh orange juice'});
   assert.equal(juice.valid,true);assert.equal(juice.result.completed,true);
-  assert.deepEqual(juice.graph.nodes.filter(node=>node.kind==='action').map(node=>node.actionId),['wash_orange','peel_cut','add_orange','start_juicer','pack_juice']);
-  assert.deepEqual(Object.keys(juice.result.finalState.flags),['wash_orange','peel_cut','add_orange','start_juicer','pack_juice']);
+  assert.deepEqual(juice.graph.nodes.filter(node=>node.kind==='action').map(node=>node.actionId),['wash_orange','peel_cut','add_orange','start_juicer']);
+  assert.deepEqual(Object.keys(juice.result.finalState.flags),['wash_orange','peel_cut','add_orange','start_juicer']);
   assert.match(await page.locator('#result').textContent(),/任务完成/);
-  checks.push('all five juice steps are added through the real toolbox and animate to completion');
+  checks.push('all four juice steps are added through the real toolbox and animate to completion');
 
   await chooseChapter(3);
   await page.locator('[data-practice-task="rice-roll"]').tap();

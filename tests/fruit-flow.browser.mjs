@@ -31,7 +31,7 @@ try{
   const ids=()=>nodes().evaluateAll(elements=>elements.map(el=>el.dataset.node));
   const labels=()=>nodes().locator('.node-copy strong').allTextContents();
   const saved=()=>page.evaluate(async()=>await(await import('/db.js')).get('draft:practice:2:fresh-juice'));
-  const expected=['清洗橙子','去皮切块','放入橙肉','启动机器榨汁','打包饮品'];
+  const expected=['清洗橙子','去皮切块','放入橙肉','启动机器榨汁'];
   async function settled(){await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}
   async function idle(){await page.waitForFunction(()=>!document.querySelector('.layout-in-motion,.flow-shifting,.flow-forming'));await settled();}
   async function poll(check,label,timeout=10000){const until=Date.now()+timeout;while(Date.now()<until){if(await check())return;await page.waitForTimeout(60);}throw new Error(`Timed out: ${label}`);}
@@ -100,19 +100,19 @@ try{
   await sorting(0);assert.equal(await page.locator('#chainButton').isDisabled(),true,'empty sorting cannot form a flowchart');
   await shot('fruit-empty');checks.push('fresh fruit canvas has no start/end, arrows or ports; empty formation and execution are disabled');
 
-  for(const action of ['peel_cut','wash_orange','add_orange','start_juicer','pack_juice'])await append(action,{touch:action==='add_orange'});
-  await sorting(5);assert.deepEqual(await labels(),[expected[1],expected[0],...expected.slice(2)]);
+  for(const action of ['peel_cut','wash_orange','add_orange','start_juicer'])await append(action,{touch:action==='add_orange'});
+  await sorting(4);assert.deepEqual(await labels(),[expected[1],expected[0],...expected.slice(2)]);
   const unsorted=await ids(),target=await nodes().nth(1).boundingBox();
   await drag(nodes().first(),{x:target.x+target.width/2,y:target.y+target.height*.9});
   const order=[unsorted[1],unsorted[0],...unsorted.slice(2)];
   assert.deepEqual(await ids(),order,'pointer reorder puts preparation steps in the chosen order');
-  assert.deepEqual(await labels(),expected);await sorting(5);
+  assert.deepEqual(await labels(),expected);await sorting(4);
   await poll(async()=>JSON.stringify((await saved())?.graph.nodes.filter(n=>n.kind==='action').map(n=>n.id))===JSON.stringify(order),'sorting saved');
-  await shot('fruit-sorted');await page.reload();await page.locator('#transition').waitFor({state:'hidden'});await sorting(5);assert.deepEqual(await ids(),order);
-  checks.push('mouse and touch drags add five operation cards; real reorder changes sequence; unformed order survives refresh');
+  await shot('fruit-sorted');await page.reload();await page.locator('#transition').waitFor({state:'hidden'});await sorting(4);assert.deepEqual(await ids(),order);
+  checks.push('mouse and touch drags add four operation cards; real reorder changes sequence; unformed order survives refresh');
 
   await form(order,{record:true});await shot('fruit-formed');
-  await poll(async()=>(await saved())?.graph.edges.length===6,'formed draft saved');
+  await poll(async()=>(await saved())?.graph.edges.length===5,'formed draft saved');
   const formedGraph=(await saved()).graph;
   await page.reload();await page.locator('#transition').waitFor({state:'hidden'});await formed(order);
   assert.deepEqual((await saved()).graph,formedGraph,'refresh preserves generated draft and graph metadata');
@@ -146,11 +146,11 @@ try{
   await poll(()=>page.locator('#runButton').isEnabled(),'run ends');await shot('fruit-run-completed');
   const runs=await page.evaluate(async()=>(await(await import('/db.js')).all('run:practice:')).map(entry=>entry.value));
   const completed=runs.find(run=>run.chapterId===2&&run.status==='completed');assert.ok(completed?.valid);
-  assert.equal(completed.executedNodes.length,7);assert.deepEqual(completed.graph.nodes.filter(n=>n.kind==='action').map(n=>n.id),order);
+  assert.equal(completed.executedNodes.length,6);assert.deepEqual(completed.graph.nodes.filter(n=>n.kind==='action').map(n=>n.id),order);
   const frames=await page.evaluate(()=>{window.__fruitRunRecording=false;return window.__fruitRunFrames;});
   writeFileSync(join(output,'run-frames.json'),JSON.stringify(frames,null,2));
   const sequence=frames.filter(frame=>frame.id).reduce((list,frame)=>list.at(-1)===frame.id?list:[...list,frame.id],[]);
-  assert.deepEqual(sequence,completed.executedNodes,'visible highlight follows start, five actions and end in execution order');
+  assert.deepEqual(sequence,completed.executedNodes,'visible highlight follows start, four actions and end in execution order');
   for(const id of [completed.executedNodes[0],completed.executedNodes.at(-1)]){
     const terminalFrames=frames.filter(frame=>frame.id===id);assert.ok(terminalFrames.every(frame=>frame.terminal));
     assert.ok(terminalFrames.at(-1).time-terminalFrames[0].time>=400,'start and end each visibly highlight for at least 400ms');
@@ -158,15 +158,15 @@ try{
   const metrics=await page.evaluate(async graph=>(await import('/shared/engine.mjs')).simulate(graph).metrics,completed.graph);
   assert.deepEqual(completed.metrics,metrics,'animation dwell does not add task time');
   assert.ok(runs.some(run=>run.chapterId===2&&run.status==='stopped'&&!run.valid),'stopped playback remains an invalid interrupted record');
-  checks.push('run highlights start → five actions → end, holds both terminals at least 400ms, supports pause/stop, records completion, and excludes animation time from task metrics');
+  checks.push('run highlights start → four actions → end, holds both terminals at least 400ms, supports pause/stop, records completion, and excludes animation time from task metrics');
 
   const last=await nodes().last().boundingBox();
   await drag(nodes().first(),{x:last.x+last.width/2,y:last.y+last.height*.9},{touch:true});
-  await sorting(5);assert.deepEqual(await ids(),[...order.slice(1),order[0]],'editing a generated graph resets it to sorting');
+  await sorting(4);assert.deepEqual(await ids(),[...order.slice(1),order[0]],'editing a generated graph resets it to sorting');
   await page.locator('#undoButton').click();await formed(order);
   const tools=await page.locator('.control-panel').boundingBox();
   await drag(nodes().last(),{x:tools.x+tools.width/2,y:tools.y+tools.height-70});
-  await sorting(4);assert.deepEqual(await ids(),order.slice(0,-1));
+  await sorting(3);assert.deepEqual(await ids(),order.slice(0,-1));
   await page.locator('#undoButton').click();await formed(order);await shot('fruit-undo-restored');
   await page.locator('#clearButton').click();await sorting(0);
   await page.locator('#undoButton').click();await formed(order);
@@ -207,7 +207,7 @@ try{
   assert.deepEqual(await ids(),legacyOrder);assert.equal(await page.locator('#flowNodes .terminal').count(),2);
   assert.equal(await page.locator('#flowEdges path[data-edge]').count(),0,'legacy missing edges remain visible as an incomplete draft');
   assert.equal(await page.locator('#chainButton').isEnabled(),true,'legacy draft with actions exposes repair');
-  await form(legacyOrder);await poll(async()=>(await saved())?.graph.edges.length===6,'legacy repair saved');
+  await form(legacyOrder);await poll(async()=>(await saved())?.graph.edges.length===5,'legacy repair saved');
   assert.deepEqual((await saved()).graph.nodes,legacy.draft.nodes,'legacy repair preserves every existing node');
   const history=await page.evaluate(async()=>{const db=await import('/db.js');return {run:await db.get('run:practice:legacy-run'),submission:await db.get('submission:practice:legacy-submission')};});
   assert.deepEqual(history,{run:legacy.run,submission:legacy.submission},'repair leaves historical run and submission snapshots unchanged');

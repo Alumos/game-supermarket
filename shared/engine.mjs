@@ -22,7 +22,7 @@ export const CHAPTERS = freeze([
 const cards = pairs => pairs.map(([actionId,label,params]) => ({actionId,label,...(params ? {params} : {})}));
 export const TASKS = freeze([
   {id:'drink-swap',chapterId:1,name:'饮料换柜',npc:'饮料柜员',description:'A柜的橙汁与B柜的牛奶要交换位置，C是空闲周转位。',goal:'A放牛奶，B放橙汁，C空着，双手空闲。',actions:cards([['move_crate','搬运饮料箱',{from:'A',to:'C'}]])},
-  {id:'fresh-juice',chapterId:2,name:'鲜榨橙汁',npc:'水果区师傅',description:'清洗、去皮切块后先放入橙肉，再启动机器，避免空转。',goal:'依次完成五步，打包鲜榨橙汁。',actions:cards([['wash_orange','清洗橙子'],['peel_cut','去皮切块'],['add_orange','放入橙肉'],['start_juicer','启动机器榨汁'],['pack_juice','打包饮品']])},
+  {id:'fresh-juice',chapterId:2,name:'鲜榨橙汁',npc:'水果区师傅',description:'清洗、去皮切块后先放入橙肉，再启动机器，避免空转。',goal:'依次完成四步，完成鲜榨橙汁。',actions:cards([['wash_orange','清洗橙子'],['peel_cut','去皮切块'],['add_orange','放入橙肉'],['start_juicer','启动机器榨汁']])},
   {id:'rice-roll',chapterId:3,name:'制作海苔饭卷',npc:'熟食师傅',description:'按材料和工序要求制作海苔饭卷。',goal:'完成五项操作，切段装盒。',actions:cards([['seaweed','铺开海苔'],['rice','铺匀熟米饭'],['filling','放上熟制馅料'],['roll','卷紧定形'],['pack','切段装盒']])},
   {id:'tea',chapterId:3,name:'茶饮岗位',npc:'茶饮师傅',description:'用规定量的适温水制作一杯茶饮，浸泡后取出茶包。',goal:'完成茶饮，加盖贴签。',actions:cards([['cup','取杯放茶包'],['water','注入规定量适温水'],['steep','等待浸泡（快进）'],['remove_bag','取出茶包'],['lid','加盖贴签']])},
   {id:'plant',chapterId:3,name:'植物岗位',npc:'园艺师傅',description:'给植株上盆；填土后，浇水和放品名牌的先后可以交换。',goal:'栽好植株、按量浇水并放好品名牌。',actions:cards([['soil','盆底铺土'],['plant','放入带土根团'],['fill','填土轻压'],['water_plant','按规定量浇水'],['label_plant','放品名牌']])},
@@ -314,7 +314,7 @@ export function validateGraph(graph) {
 }
 
 const dependencies={
-  wash_orange:[],peel_cut:['wash_orange'],add_orange:['peel_cut'],start_juicer:['add_orange'],pack_juice:['start_juicer'],
+  wash_orange:[],peel_cut:['wash_orange'],add_orange:['peel_cut'],start_juicer:['add_orange'],
   seaweed:[],rice:['seaweed'],filling:['rice'],roll:['filling'],pack:['roll'],
   cup:[],water:['cup'],steep:['water'],remove_bag:['steep'],lid:['remove_bag'],
   soil:[],plant:['soil'],fill:['plant'],water_plant:['fill'],label_plant:['fill'],

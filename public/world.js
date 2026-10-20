@@ -291,18 +291,18 @@ export class SupermarketWorld {
     if(!small)this.text(meta.name,x,y-h/2+4,8,'#795d43');
     this.r(x-w/2+2,y-3,w-4,2,'#805d4166');this.r(x-w/2+2,y-h+5,2,3,'#fff0bf');
   }
-  _marker(id,x,y,color=P.deep,sub){
-    const w=Math.max(34,id.length*16+12);this.r(x-w/2,y-12,w,24,'#fff2cf');this.r(x-w/2+2,y-10,w-4,20,color);this.r(x-w/2+2,y-10,w-4,2,'#ffffff33');this.text(id,x,y,15,'#fff6d9');if(sub)this.text(sub,x,y+24,11,P.deep);
+  _marker(id,x,y,color=P.deep,sub,size=15){
+    const w=Math.max(34,id.length*(size*1.05)+12),h=size+9;this.r(x-w/2,y-h/2,w,h,'#fff2cf');this.r(x-w/2+2,y-h/2+2,w-4,h-4,color);this.r(x-w/2+2,y-h/2+2,w-4,2,'#ffffff33');this.text(id,x,y+1,size,'#fff6d9');if(sub)this.text(sub,x,y+24,11,P.deep);
   }
   _drink(){
     this._shelf(61,120,111,0);this._shelf(467,120,111,1);
     this._sign('清凉饮料',116,113,'#de9b4d');this._sign('每日鲜奶',522,113,'#76a9aa');
     for(const [id,gx]of [['A',5],['B',10],['C',15]]){
-      const p=this._xy({x:gx,y:9});this._cabinet(p.x-49,p.y-104,98,66,id==='C'?'#aaad87':'#75aa9c');
-      this.r(p.x-42,p.y-94,84,39,'#d6e0c2');this.r(p.x-40,p.y-91,80,3,'#e9efd6');
-      const item=this.state.slots?.[id];if(item){this._crate(p.x,p.y-54,item);for(let i=0;i<4;i++)this._bottle(p.x-29+i*18,p.y-91,item==='milk'?'#e9ead9':'#e1a053');}
-      else {this.r(p.x-22,p.y-82,44,24,'#b7ccb5');this.text('空 位',p.x,p.y-70,12,'#6e9584');this.line(p.x-20,p.y-59,p.x+20,p.y-59,'#9caf99');}
-      this._marker(id,p.x,p.y-29,id==='C'?'#9c8662':P.deep);
+      const p=this._xy({x:gx,y:9});this._cabinet(p.x-57,p.y-110,114,74,id==='C'?'#aaad87':'#75aa9c');
+      this.r(p.x-49,p.y-99,98,44,'#d6e0c2');this.r(p.x-47,p.y-95,94,3,'#e9efd6');
+      const item=this.state.slots?.[id];if(item){this._crate(p.x,p.y-56,item);for(let i=0;i<4;i++)this._bottle(p.x-34+i*21,p.y-96,item==='milk'?'#e9ead9':'#e1a053');}
+      else {this.r(p.x-25,p.y-87,50,27,'#b7ccb5');this.text('空 位',p.x,p.y-73,13,'#6e9584');this.line(p.x-22,p.y-63,p.x+22,p.y-63,'#9caf99');}
+      this._marker(id,p.x,p.y-28,id==='C'?'#9c8662':P.deep,null,18);
       this.r(p.x-35,p.y+8,70,5,'#c4ba92');for(let k=-1;k<=1;k++)this.r(p.x+k*22-4,p.y+9,8,2,'#e6d6a5');
     }
 
@@ -315,26 +315,26 @@ export class SupermarketWorld {
     else {this.r(x-11,y-8,22,18,'#db8a35');this.r(x-8,y-12,16,26,'#e99c40');this.r(x-5,y-8,14,18,'#efab4b');this.r(x-7,y-7,4,4,'#ffce75');this.r(x-1,y-14,3,4,'#7b8250');this.r(x+2,y-15,8,4,'#769456');}
   }
   _juice(){
-    const f=this.state.flags||{},washed=f.wash_orange||f.wash,cut=f.peel_cut||f.cut_orange||f.peel,loaded=f.load_orange||f.add_orange||f.load,blended=f.juice||f.blend||f.start_juicer,packed=f.pack_juice||f.pack;
+    const f=this.state.flags||{},washed=f.wash_orange||f.wash,cut=f.peel_cut||f.cut_orange||f.peel,loaded=f.load_orange||f.add_orange||f.load,blended=f.juice||f.blend||f.start_juicer;
     this._sign('水果区 · 每日鲜榨',320,115,'#bd8145',214);
     this._cabinet(58,151,126,100,'#9eac7b');this.r(64,156,114,48,'#c5cf9d');
     for(let i=0;i<6;i++)this._orange(78+(i%3)*38,170+Math.floor(i/3)*25);
     this.text('新鲜甜橙',121,230,13,P.deep);
     this._cabinet(220,172,204,111,'#80aaa0');this.r(215,167,214,12,'#dce0be');
     this.r(230,183,83,66,'#c4cdb0');this.r(237,190,69,51,'#6f9e97');this.r(241,195,61,42,'#9dc7ba');this.r(255,180,8,17,'#e3dfc2');this.r(259,178,24,6,'#dbe4c7');this.r(279,181,5,13,'#e8e5ce');
-    if(!cut&&!loaded&&!packed){this._orange(269,218);if(washed){for(let i=0;i<7;i++){this.r(252+i*6,197+(i%3)*8,2,5,'#e4f7dc');}this.text('已清洗',270,257,12,P.teal);}}
+    if(!cut&&!loaded){this._orange(269,218);if(washed){for(let i=0;i<7;i++){this.r(252+i*6,197+(i%3)*8,2,5,'#e4f7dc');}this.text('已清洗',270,257,12,P.teal);}}
     this.r(330,202,74,43,'#e2c592');this.r(333,205,68,36,'#f0d7a6');
-    if(cut&&!loaded&&!packed){this._orange(349,222,true);this._orange(384,221,true);this.r(385,185,5,18,'#526c66');this.r(365,199,24,4,'#d7dec4');this.text('橙肉切块',368,257,12,P.deep);}
+    if(cut&&!loaded){this._orange(349,222,true);this._orange(384,221,true);this.r(385,185,5,18,'#526c66');this.r(365,199,24,4,'#d7dec4');this.text('橙肉切块',368,257,12,P.deep);}
     this._cabinet(454,173,116,110,'#88aa94');this.r(465,251,94,14,'#e7dfbd');
-    this.r(485,171,52,71,'#315b58');this.r(489,177,44,59,'#bfd9bd');this.r(494,182,34,48,blended&&!packed?'#efb347':'#dce5c8');this.r(480,167,62,9,'#4f7e70');this.r(487,161,48,7,'#799d81');
-    if(loaded&&!blended&&!packed){for(let i=0;i<6;i++)this.r(497+(i%3)*10,211-Math.floor(i/3)*12,8,9,'#eaa146');}
+    this.r(485,171,52,71,'#315b58');this.r(489,177,44,59,'#bfd9bd');this.r(494,182,34,48,blended?'#efb347':'#dce5c8');this.r(480,167,62,9,'#4f7e70');this.r(487,161,48,7,'#799d81');
+    if(loaded&&!blended){for(let i=0;i<6;i++)this.r(497+(i%3)*10,211-Math.floor(i/3)*12,8,9,'#eaa146');}
     const running=this.anim?.event.actionId==='start_juicer'||this.anim?.event.actionId==='juice'||this.anim?.event.actionId==='blend';
-    if(blended&&!packed){for(let i=0;i<7;i++)this.r(496+(i*9)%29,188+(i*7+Math.floor(this.time*(running?22:0)))%34,3,2,'#ffda85');}
+    if(blended){for(let i=0;i<7;i++)this.r(496+(i*9)%29,188+(i*7+Math.floor(this.time*(running?22:0)))%34,3,2,'#ffda85');}
     this.r(492,241,38,13,'#5d8776');this.r(515,245,6,4,blended?'#efd26d':'#b3c89e');
-    this.text(packed?'橙汁已倒出打包':blended?'已榨出橙汁':loaded?'橙肉已入机':'等待放入橙肉',512,294,12,P.deep);
+    this.text(blended?'已榨出橙汁':loaded?'橙肉已入机':'等待放入橙肉',512,294,12,P.deep);
     this.r(239,319,165,37,'#c9b98b');this.r(246,322,151,27,'#e8d9b1');
-    if(packed){this.r(291,297,51,51,'#f5e9c7');this.r(296,303,41,39,'#edb44c');this.r(288,294,57,8,'#46776c');this.r(310,278,5,19,'#e9d7a5');this.r(298,315,37,18,'#fff0d1');this.text('鲜橙汁',317,324,11,'#9d6f3b');this._sign('✓ 已打包',320,375,'#56897b',130);}
-    else this.text('成品打包位',320,337,13,'#7c825e');
+    if(blended){this.r(291,297,51,51,'#f5e9c7');this.r(296,303,41,39,'#edb44c');this.r(288,294,57,8,'#46776c');this.r(310,278,5,19,'#e9d7a5');this.r(298,315,37,18,'#fff0d1');this.text('鲜橙汁',317,324,11,'#9d6f3b');}
+    else this.text('成品出口',320,337,13,'#7c825e');
   }
   _riceRoll(x,y,f={}){
     this.r(x-43,y-96,86,45,'#d6bf8d');for(let q=x-41;q<x+42;q+=4)this.r(q,y-93,1,38,'#b29162');

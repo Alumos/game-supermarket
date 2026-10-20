@@ -184,6 +184,18 @@ try{
   await teacher.locator('#detail-dialog [data-close]').click();
  }
  checks.push('teacher shows latest chapter-specific rating and legacy text; chapter 3 table and detail isolate tea and fish ratings');
+ // Evaluation overview aggregates every task's stars and draws a radar chart.
+ await teacher.locator('#assessment-overview').click();
+ await teacher.locator('#assessment-dialog').waitFor({state:'visible'});
+ const overview=teacher.locator('#assessment-body');
+ assert.equal(await overview.locator('.assessment-summary-radar .radar').count(),1,'overview draws a class-average radar');
+ assert.equal(await overview.locator('.assessment-table-wrap tbody tr').count(),1,'overview lists the single student');
+ assert.equal(await overview.locator('.assessment-table-wrap tbody .radar').count(),1,'overview draws a per-student radar');
+ for(const stars of [3,2,3,2])await overview.locator(`.assessment-table-wrap tbody .assessment-stars[data-stars="${stars}"]`).nth(0).waitFor();
+ assert.equal(await overview.locator('.assessment-table-wrap tbody .assessment-unrated').count(),0,'every goal has a rating in the overview');
+ if(output)await teacher.screenshot({path:join(output,'self-assessment-overview.png'),fullPage:true});
+ await teacher.locator('#assessment-dialog [data-close]').click();
+ checks.push('evaluation overview aggregates every task rating into a radar chart and star columns');
  if(output){await command('practice');await poll(()=>student.locator('#submitButton').isEnabled(),'screenshot practice');await openRating(2);await chooseStars(2);await student.screenshot({path:join(output,'self-assessment-tablet.png')});await student.locator('#submitDialog .dialog-close').tap();await history();await student.screenshot({path:join(output,'self-assessment-history.png')});}
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({ok:true,checks,pageErrors:errors,ratings:studentSubs(await works()).map(sub=>({chapterId:sub.chapterId,taskId:sub.taskId,selfAssessment:sub.selfAssessment,legacy:!!sub.explanation})),screenshots:output},null,2));

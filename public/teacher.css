@@ -37,3 +37,22 @@ body{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidd
 
 /* Keep maintenance reachable even after many saved classrooms accumulate. */
 @media(min-width:901px){.side-section{min-height:0;display:flex;flex-direction:column;flex:1}.side-section nav{min-height:0;overflow:auto}.new-room,.room-maintenance,.side-bottom{flex-shrink:0}}
+
+.assessment-dialog{width:min(1060px,94vw);max-height:88vh;padding:0;border:0;border-radius:16px;box-shadow:0 18px 60px #193e3633;background:var(--white)}
+.assessment-dialog::backdrop{background:#193e3628}
+.assessment-dialog .detail-header{padding:22px 26px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:16px}
+.assessment-body{padding:18px 26px 26px;overflow:auto;max-height:calc(88vh - 96px)}
+.assessment-summary{display:flex;align-items:center;gap:28px;flex-wrap:wrap;margin-bottom:20px;padding:18px;background:#f4f7ee;border:1px solid var(--line);border-radius:13px}
+.assessment-summary-radar{display:flex;flex-direction:column;align-items:center;gap:8px}
+.assessment-summary-radar small{font-size:12px}
+.assessment-summary-meta{display:flex;flex-wrap:wrap;gap:14px 26px}
+.assessment-summary-meta strong{display:block;font-size:30px;font-weight:650;color:var(--ink);line-height:1.1}
+.assessment-summary-meta span{font-size:12px;color:var(--muted)}
+.assessment-table-wrap{max-height:56vh;overflow:auto;border:1px solid var(--line);border-radius:12px}
+.assessment-table-wrap table{border-collapse:collapse;width:100%;min-width:820px}
+.assessment-table-wrap th,.assessment-table-wrap td{padding:12px 14px;border-bottom:1px solid #eef0e8;text-align:left;vertical-align:middle}
+.assessment-table-wrap th{position:sticky;top:0;background:#f2f5ea;font-size:12px;color:#57705f;z-index:1}
+.assessment-table-wrap td{font-size:13px}
+.overview-name{min-width:130px}
+.overview-radar{width:130px}
+.overview-radar svg{display:block}
