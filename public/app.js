@@ -11,7 +11,7 @@ const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-
 const defaultTask=ch=>['','drink-swap','fresh-juice','tea','delivery'][ch];
 const teacherDemoRequested=new URLSearchParams(location.search).get('mode')==='demo';
 const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,teacherDemoMode:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false,formingFlow:false};
-let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId;
+let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId,pendingProgression=null;
 const scope=()=>state.teacherDemoMode?'teacher-demo':state.learner?.id||'practice';
 const graphKey=(ch=state.chapter,task=state.taskId)=>`draft:${scope()}:${ch}:${task}`;
 const metaKey=(key)=>`meta:${key}`;
@@ -79,8 +79,8 @@ function renderChapter(){
   $('#flowEmpty').innerHTML=delivery?'把右边的蓝色积木拖进来<br><small>先看坐标，再决定配送顺序</small>':isFruit()?'把右边的操作卡拖进来<br><small>先排好顺序，再点“按排序形成流程图”</small>':'从右边拖入一个操作<br><small>再调整顺序，连接成完整的流程图</small>';
   $('#rules').innerHTML=delivery?'<p>六单在出发时全部取好，A、E含冷藏商品，D是普通饼干订单。必须优先留意送达时限。走一格1任务分钟，每单交付2分钟。路旁的黄色标记表示慢行路段，每次经过额外增加标出的1～2分钟，往返都会计时。到达时刻不超过时限才成功，越早送达奖励越多；超时变质会扣金币。</p><p>每块积木沿一条直路移动，转弯需要新的坐标积木。思考、动画快进和暂停不计任务时间。把六单都处理完，再比较用时与金币。</p>':`<p>${esc(t.description)}</p>`;
   const actions=availableActions(state.chapter,state.taskId),mixed=actions.length>3?[actions[2],actions[0],actions[4],actions[1],actions[3]]:actions;
-  $('#actionCards').innerHTML=mixed.filter(Boolean).map(a=>`<button class="action-card ${delivery?'block-palette':''}" data-action="${a.actionId}" data-palette-drag="${a.actionId}">${delivery?'⠿ 移动到（ , ）':`＋ ${esc(a.label)}`}</button>`).join('');
-  $('#coordinateCards').innerHTML=delivery?deliveryDestinations().map(([id,point])=>`<button class="coordinate-card ${DELIVERY_MAP.orders.some(o=>o.point===id&&o.cold)?'cold-coordinate':''} ${/^[G-I]$/.test(id)?'waypoint-coordinate':''}" data-coordinate="${id}" data-palette-drag="move_to" data-x="${point.x}" data-y="${point.y}" aria-label="${esc(id)}${/^[G-I]$/.test(id)?'转弯点':''}（${point.x},${point.y}）"><b>${esc(id)}（${point.x},${point.y}）</b></button>`).join(''):'';
+  $('#actionCards').innerHTML=mixed.filter(Boolean).map(a=>`<button class="action-card ${delivery?'block-palette':''}" data-action="${a.actionId}" data-palette-drag="${a.actionId}">${delivery?'⠿ 移动至（ , ）':`＋ ${esc(a.label)}`}</button>`).join('');
+  $('#coordinateCards').innerHTML=delivery?deliveryDestinations().map(([id,point])=>`<button class="coordinate-card ${DELIVERY_MAP.orders.some(o=>o.point===id&&o.cold)?'cold-coordinate':''} ${/^[G-I]$/.test(id)?'waypoint-coordinate':''}" data-coordinate="${id}" data-palette-drag="move_to" data-x="${point.x}" data-y="${point.y}" aria-label="移动至 ${esc(id)}（${point.x},${point.y}）${/^[G-I]$/.test(id)?'转弯点':''}"><b>移动至 ${esc(id)}（${point.x},${point.y}）</b></button>`).join(''):'';
   renderConnection();renderGraph();renderComparison();renderNotice();updateControls();
 }
 function renderNotice(){
@@ -506,13 +506,13 @@ async function selectPracticeTask(taskId){
   }finally{state.switchingTask=false;renderPracticeTasks();renderNotice();updateControls();}
 }
 
-async function changeChapter(ch,taskId=defaultTask(ch),{fromTeacher=false,transition=true}={}){
+async function changeChapter(ch,taskId=defaultTask(ch),{fromTeacher=false,transition=true,saveCurrent=true}={}){
   gameAudio.silence();
   cancelCardDrag?.();finishFlowFormation();
   if($('#submitDialog').open)$('#submitDialog').close();
   if(!TASKS.some(t=>t.chapterId===ch&&t.id===taskId))taskId=defaultTask(ch);
   if(state.running||state.demo)await stopRun('interrupted','老师切换了章节');
-  if(state.graph){clearTimeout(saveTimer);await persistNow({kind:fromTeacher?'archive':'draft'});}
+  if(state.graph&&saveCurrent){clearTimeout(saveTimer);await persistNow({kind:fromTeacher?'archive':'draft'});}
   state.chapter=ch;state.taskId=taskId;state.selected=null;state.undo=[];state.connecting=false;state.connectFrom=null;state.activeNode=null;state.errorNode=null;
   const saved=await db.get(graphKey()).catch(()=>null);state.graph=currentDeliveryDraft(saved?.graph||cleanGraph());if(!saved)chain();
   else if(state.graph!==saved.graph)await safeSet(graphKey(),{...saved,graph:state.graph,updatedAt:Date.now()});
@@ -634,7 +634,7 @@ const fingerprint=g=>{const c=copy(g);delete c.revision;return JSON.stringify(c)
 async function enqueue(bundle){
   if(!state.learner)return;
   if(!state.session.openedChapters?.includes(bundle.graph.chapterId)&&!(state.session.chapterId===bundle.graph.chapterId&&state.session.phase==='practice'))return;
-  const item={...bundle,id:uid(),mutationId:uid(),offline:!state.online,createdAt:Date.now()};
+  const item={...bundle,id:uid(),mutationId:uid(),offline:!state.online,chapterEpoch:bundle.chapterEpoch??state.session.chapterEpoch,createdAt:Date.now()};
   if(item.kind==='archive')item.submission={submissionId:uid(),source:'chapter',explanation:''};
   // Coalesce only the last unsent draft; never replace a run's snapshot.
   const previous=state.queue.at(-1);
@@ -674,8 +674,12 @@ async function flushQueue(){
       }
       if(item.submission&&!item.submissionUploaded){
         const sub=item.submission,run=state.runs.find(r=>r.id===sub.runId);
-        const body={...sub,draftId,revision,offline};if(!run||run.syncedRevision!==revision)delete body.runId;
-        await api('/api/student/submissions',{method:'POST',body});item.submissionUploaded=true;await safeSet(`submission:${learnerId}:${sub.submissionId}`,{...sub,chapterId:item.graph.chapterId,graph:item.graph,synced:true,createdAt:Date.now()});
+        const body={...sub,draftId,revision,offline,chapterEpoch:item.chapterEpoch};if(!run||run.syncedRevision!==revision)delete body.runId;
+        const response=await api('/api/student/submissions',{method:'POST',body});item.submissionUploaded=true;await safeSet(`submission:${learnerId}:${sub.submissionId}`,{...sub,chapterId:item.graph.chapterId,taskId:item.graph.taskId,graph:item.graph,synced:true,createdAt:Date.now()});
+        // Room application may save the source graph, but enqueue never waits
+        // for this flush. Keep the queue transaction durable before switching.
+        await safeSet(`queue:${learnerId}`,state.queue);
+        if(response.session)await acceptRoom(response);
       }
       if(state.queue[0]?.id===item.id)state.queue.shift();await safeSet(`queue:${learnerId}`,state.queue);
     }
@@ -699,17 +703,17 @@ async function hydrateWorks(data){
 }
 let roomApply=Promise.resolve(),roomRefresh=null,roomAck=null,lastRoomAck=null,ackRequested=false;
 // Presence needs a periodic acknowledgement; identical SSE snapshots do not.
-function acknowledgeRoom(){
+function acknowledgeRoom({force=false}={}){
   if(!state.session||!state.learner)return Promise.resolve();
   const sessionId=state.session.id,learnerId=state.learner.id,version=state.session.version,chapterId=state.chapter;
   const key=`${sessionId}:${learnerId}:${version}:${chapterId}`;
-  if(lastRoomAck?.key===key&&Date.now()-lastRoomAck.at<10000)return Promise.resolve();
+  if(!force&&lastRoomAck?.key===key&&Date.now()-lastRoomAck.at<10000)return Promise.resolve();
   if(roomAck){ackRequested=true;return roomAck;}
   roomAck=api('/api/student/ack',{method:'POST',body:{version,chapterId}})
     .then(response=>{if(state.session?.id!==sessionId||state.learner?.id!==learnerId)return;lastRoomAck={key,at:Date.now()};
       // A proxy can keep SSE open while buffering state events. The existing
       // presence response detects that condition without another idle request.
-      if(response.session?.version>state.session.version||(response.learner?.taskVersion||0)>(state.learner.taskVersion||0))return alignRoom();
+      if(response.session?.version>state.session.version||(response.session?.chapterEpoch??0)!==(state.session.chapterEpoch??0)||response.session?.chapterId>state.session.chapterId||(response.learner?.taskVersion||0)>(state.learner.taskVersion||0))return alignRoom();
     })
     .catch(()=>{})
     .finally(()=>{roomAck=null;if(ackRequested){ackRequested=false;acknowledgeRoom();}});
@@ -719,9 +723,38 @@ function roomSignature(data){
   const {lastSeen,online,receivedVersion,appliedVersion,...learner}=data.learner||{};
   return JSON.stringify({session:data.session,learner,assignment:data.assignment});
 }
-function acceptRoom(data){roomApply=roomApply.then(()=>applyRoom(data)).catch(e=>{console.error(e);toast('课堂状态同步未完成，请检查连接');});return roomApply;}
-async function applyRoom(data){
+function acceptRoom(data,options){roomApply=roomApply.then(()=>applyRoom(data,options)).catch(e=>{console.error(e);toast('课堂状态同步未完成，请检查连接');});return roomApply;}
+function progressionRoom(data,{authoritative=true}={}){
+  if(!pendingProgression)return data;
+  const pending=pendingProgression,s=data.session;
+  if(pending.sessionId!==s.id||pending.chapterEpoch!==(s.chapterEpoch??0)||authoritative&&s.chapterId>=pending.chapterId){
+    pendingProgression=null;safeSet(`progression:${scope()}`,null);return data;
+  }
+  const chapterId=pending.chapterId,taskId=chapterId===3?(data.learner?.taskId||state.learner.taskId):defaultTask(chapterId);
+  // Offline advancement changes only the chapter. Teacher pause/end still
+  // controls editing, and a teacher chapter command invalidates this epoch.
+  return {...data,session:{...s,chapterId,openedChapters:[...new Set([...(s.openedChapters||[]),chapterId])]},assignment:{...data.assignment,chapterId,taskId,draftId:`${state.learner.id}-${chapterId}-${taskId}`}};
+}
+function advanceAfterAssessment(graph,chapterEpoch){
+  roomApply=roomApply.then(async()=>{
+    if(state.teacherDemoMode||graph.chapterId>=4||state.chapter!==graph.chapterId)return;
+    if(state.session){
+      if(state.session.phase!=='practice'||(state.session.chapterEpoch??0)!==chapterEpoch)return;
+      pendingProgression={sessionId:state.session.id,chapterEpoch,chapterId:graph.chapterId+1};
+      await safeSet(`progression:${scope()}`,pendingProgression);
+      await applyRoom({session:state.session,learner:state.learner,assignment:state.assignment},{authoritative:false});
+    }else await changeChapter(graph.chapterId+1,defaultTask(graph.chapterId+1),{saveCurrent:false});
+  }).catch(e=>{console.error(e);toast('作品已保存，暂时无法进入下一站');});
+  return roomApply;
+}
+async function applyRoom(data,{authoritative=true}={}){
   if(!data.session||state.session&&(data.session.id!==state.session.id||data.session.version<state.session.version))return;
+  data=progressionRoom(data,{authoritative});
+  // SSE and a submission response can arrive in either order. Individual
+  // progress is monotonic until the teacher starts a new chapter epoch.
+  if(state.session&&(data.session.chapterEpoch??0)===(state.session.chapterEpoch??0)&&data.session.chapterId<state.session.chapterId){
+    data={...data,session:{...data.session,chapterId:state.session.chapterId,openedChapters:[...new Set([...(data.session.openedChapters||[]),...(state.session.openedChapters||[])])]},assignment:state.assignment};
+  }
   // A late heartbeat/SSE snapshot must not undo a more recent task selection.
   const currentTaskVersion=state.learner?.taskVersion||0,incomingTaskVersion=data.learner?.taskVersion??data.assignment?.taskVersion??0;
   if(incomingTaskVersion<currentTaskVersion){
@@ -732,7 +765,7 @@ async function applyRoom(data){
   state.session=data.session;if(data.learner)state.learner=data.learner;if(data.assignment)state.assignment=data.assignment;
   if(unchanged&&!changed&&state.teacherPaused===(state.session.phase==='paused')){renderNotice();acknowledgeRoom();return;}
   await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
-  if(changed)await changeChapter(state.session.chapterId,data.assignment?.taskId||(state.session.chapterId===3?state.learner.taskId:defaultTask(state.session.chapterId)),{fromTeacher:chapterChanged,transition:chapterChanged});
+  if(changed)await changeChapter(state.session.chapterId,data.assignment?.taskId||(state.session.chapterId===3?state.learner.taskId:defaultTask(state.session.chapterId)),{fromTeacher:chapterChanged&&(previous?.chapterEpoch??0)!==(state.session.chapterEpoch??0),transition:chapterChanged});
   if(!changed&&state.session.phase==='explain'&&previous?.phase==='practice')await stopRun('interrupted','老师开始讲解');
   if(state.session.phase==='ended'&&previous?.phase!=='ended'){await stopRun('interrupted','课堂已结束');await persistNow({kind:'archive'});}
   state.teacherPaused=state.session.phase==='paused';
@@ -753,7 +786,7 @@ function connectStream(){
   // The stream sends its own initial snapshot, including after a reconnect.
   stream.onopen=()=>{state.online=true;renderConnection();renderNotice();flushQueue();};
   stream.onerror=()=>{state.online=false;renderConnection();renderNotice();};
-  clearInterval(heartbeat);heartbeat=setInterval(async()=>{if(!state.session)return;try{if(state.stream?.readyState===EventSource.OPEN)await acknowledgeRoom();else await alignRoom();flushQueue();}catch{}},12000);
+  clearInterval(heartbeat);heartbeat=setInterval(async()=>{if(!state.session)return;try{if(state.stream?.readyState===EventSource.OPEN)await acknowledgeRoom({force:true});else await alignRoom();flushQueue();}catch{}},12000);
 }
 function startTabLease(){
   clearInterval(leaseTimer);channel?.close();if(!state.learner)return;
@@ -769,7 +802,7 @@ async function enterClass(data){
     state.graph=cleanGraph();chain();state.selected=null;state.undo=[];state.runs=[];state.feedback=[];
     world.setChapter(state.chapter,state.taskId);world.setState(initialState(state.chapter,state.taskId));resetMetrics();renderChapter();
   }
-  state.queue=await db.get(`queue:${scope()}`,[]);await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
+  state.queue=await db.get(`queue:${scope()}`,[]);pendingProgression=await db.get(`progression:${scope()}`,null);await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
   await hydrateWorks(await api('/api/student/works?history=0'));const current=await api(`/api/sessions/${state.session.id}/state`);state.assignment=current.assignment;
   state.graph=null;await changeChapter(current.session.chapterId,current.assignment.taskId,{transition:false});await acceptRoom(current);state.authExpired=false;startTabLease();connectStream();flushQueue();
   for(const dialog of ['#welcome','#identityDialog','#recoverDialog'])if($(dialog).open)$(dialog).close();
@@ -858,12 +891,16 @@ $('#submitForm').onsubmit=async e=>{
   if(![1,2,3].includes(stars))return;
   submittingAssessment=true;renderSelfRating();
   try{
-    const graph=snapshot(),run=state.runs.filter(r=>r.chapterId===state.chapter&&fingerprint(r.graph)===fingerprint(graph)).at(-1),submission={submissionId:uid(),selfAssessment:{goalId:state.chapter,stars},source:'student',...(run?{runId:run.id}:{})};
-    await safeSet(`submission:${scope()}:${submission.submissionId}`,{...submission,graph,chapterId:state.chapter,taskId:state.taskId,createdAt:Date.now()});
-    state.submittedFingerprint=fingerprint(graph);await safeSet(`submitted:${graphKey()}`,state.submittedFingerprint);
-    await persistNow({kind:'submission',submission});$('#submitDialog').close();
-    toast(state.learner?'作品和自评已保存，将同步给老师':'作品和自评已保存在此设备');
-    $('#saveStatus').textContent=state.learner?'已提交自评 · 同步中':'作品和自评已保存';
+    const graph=snapshot(),key=graphKey(),chapterEpoch=state.session?.chapterEpoch??0,run=state.runs.filter(r=>r.chapterId===graph.chapterId&&fingerprint(r.graph)===fingerprint(graph)).at(-1),submission={submissionId:uid(),selfAssessment:{goalId:graph.chapterId,stars},source:'student',...(run?{runId:run.id}:{})};
+    clearTimeout(saveTimer);
+    await safeSet(`submission:${scope()}:${submission.submissionId}`,{...submission,graph,chapterId:graph.chapterId,taskId:graph.taskId,createdAt:Date.now()});
+    await safeSet(key,{graph,updatedAt:Date.now()});
+    await safeSet(`submitted:${key}`,fingerprint(graph));if(graphKey()===key)state.submittedFingerprint=fingerprint(graph);
+    // Capture the source graph and epoch before any asynchronous room update.
+    await enqueue({kind:'submission',key,graph,submission,chapterEpoch});$('#submitDialog').close();
+    await advanceAfterAssessment(graph,chapterEpoch);
+    toast(state.teacherDemoMode?'作品和自评已保存在此设备':graph.chapterId<4?'作品和自评已保存，继续下一站吧':state.learner?'四站自评已完成，作品将同步给老师':'四站自评已完成，作品已保存在此设备');
+    $('#saveStatus').textContent=state.learner?(state.queue.length?'已提交自评 · 等待同步':'作品和自评已同步'):'作品和自评已保存';
   }finally{submittingAssessment=false;renderSelfRating();}
 };
 $('#historyButton').onclick=async()=>{if(state.learner&&state.online)try{await hydrateWorks(await api('/api/student/works?history=0'));}catch{}await showHistory();$('#historyDialog').showModal();};
@@ -945,11 +982,12 @@ async function bootstrap(){
   if(me?.role==='student')participant=me;
   else if(me&&participant?.learner){state.authExpired=true;state.online=false;}
   if(participant?.learner&&participant.session){
-    state.learner=participant.learner;state.session=participant.session;state.assignment=participant.assignment;state.queue=await db.get(`queue:${scope()}`,[]);
+    state.learner=participant.learner;state.session=participant.session;state.assignment=participant.assignment;state.queue=await db.get(`queue:${scope()}`,[]);pendingProgression=await db.get(`progression:${scope()}`,null);
     if(state.online)try{await hydrateWorks(await api('/api/student/works?history=0'));}catch{}else{state.runs=(await db.all(`run:${scope()}:`)).map(x=>x.value);state.feedback=await db.get(`feedback:${scope()}`,[]);}
-    let room;try{room=await api(`/api/sessions/${state.session.id}/state`);}catch{}
-    const ch=room?.session.chapterId||state.session.chapterId,t=room?.assignment.taskId||state.assignment?.taskId||(ch===3?state.learner.taskId:defaultTask(ch));
-    await changeChapter(ch,t,{transition:false});if(room)await acceptRoom(room);if(!state.authExpired){startTabLease();connectStream();}
+    let room,authoritative=false;try{room=await api(`/api/sessions/${state.session.id}/state`);authoritative=true;}catch{}
+    const effectiveRoom=pendingProgression?progressionRoom(room||{session:state.session,learner:state.learner,assignment:state.assignment},{authoritative}):room;
+    const ch=effectiveRoom?.session.chapterId||state.session.chapterId,t=effectiveRoom?.assignment.taskId||state.assignment?.taskId||(ch===3?state.learner.taskId:defaultTask(ch));
+    await changeChapter(ch,t,{transition:false});if(room||effectiveRoom)await acceptRoom(room||effectiveRoom,{authoritative});if(!state.authExpired){startTabLease();connectStream();}
   }else{
     state.runs=(await db.all('run:practice:')).map(x=>x.value);const last=await db.get('last:practice');await changeChapter(last?.chapter||1,last?.taskId||'drink-swap',{transition:false});
   }

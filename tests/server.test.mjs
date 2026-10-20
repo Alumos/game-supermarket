@@ -33,7 +33,7 @@ test('classroom permissions, commands, drafts, immutable runs, recovery, persist
   const forged=(await call('/api/student/runs',{who:'student',method:'POST',body:{...payload,runId:'short',executedNodes:[]}})).run;assert.equal(forged.valid,false);
   const altered=structuredClone(graph);altered.nodes[1].label='改后';await call('/api/student/runs',{who:'student',method:'POST',body:{...payload,graph:altered,runId:'altered'},status:409});
   await call('/api/student/submissions',{who:'student',method:'POST',body:{submissionId:'sub1',draftId,revision:1,runId:'good',explanation:'先腾出位置'}});
-  session=(await call(`/api/sessions/${id}/commands`,{method:'POST',body:{commandId:'next',expectedVersion:session.version,action:'next'}})).session;assert.equal(session.chapterId,2);assert.equal(session.phase,'explain');
+  session=(await call(`/api/sessions/${id}/commands`,{method:'POST',body:{commandId:'next',expectedVersion:session.version,action:'next'}})).session;assert.equal(session.chapterId,2);assert.equal(session.phase,'practice');
   const works=await call(`/api/sessions/${id}/works`);assert.equal(works.runs.length,3);assert.equal(works.submissions.length,2);assert.ok(works.submissions.some(s=>s.source==='chapter'));assert.equal(works.conflicts.length,1);const delta=await call(`/api/sessions/${id}/works?since=${Date.now()+1000}`);assert.equal(delta.incremental,true);assert.equal(delta.runs.length,0);assert.equal(delta.learners.length,2);
   await call('/api/student/ack',{who:'student',method:'POST',body:{version:session.version,chapterId:2}});const state=await call(`/api/sessions/${id}/state`);assert.equal(state.learners.find(x=>x.id===l.id).appliedVersion,session.version);
   const studentState=await call(`/api/sessions/${id}/state`,{who:'student'});assert.equal(studentState.learners,undefined);assert.equal(studentState.assignment.taskId,'fresh-juice');
@@ -247,7 +247,7 @@ test('third chapter tasks are freely selected, persist, and retain independent c
  const choose=(taskId,options={})=>student('/api/student/task',{method:'POST',body:{taskId},...options});
  const command=async(action,chapterId)=>{session=(await call(`/api/sessions/${session.id}/commands`,{cookie:teacher.cookie,method:'POST',body:{action,chapterId,commandId:`${action}-${session.version}`,expectedVersion:session.version}})).session;};
  await choose('tea',{status:409});
- await command('chapter',3);await choose('tea',{status:409});await command('practice');
+ await command('chapter',3);assert.equal((await student(`/api/sessions/${session.id}/state`)).session.phase,'practice');await command('practice');
  let selected=first.learner.taskId,taskVersion=0;
  assert.equal(first.learner.taskVersion,0);assert.equal(first.assignment.taskVersion,0);
  for(const taskId of ['rice-roll','tea','plant','fish']){
@@ -319,10 +319,11 @@ test('learning goal self assessments are validated, task specific, durable and p
   await command('practice');
   const tasks=chapterId===3?['rice-roll','tea','plant','fish']:[{1:'drink-swap',2:'fresh-juice',4:'delivery'}[chapterId]];
   for(const [index,taskId] of tasks.entries()){
+   if(chapterId===3&&index>0)await command('chapter',{chapterId:3});
    if(chapterId===3)await call('/api/student/task',{cookie:student.cookie,method:'POST',body:{taskId}});
    const graph=exampleGraph(chapterId,taskId,'best'),draftId=`${learnerId}-${chapterId}-${taskId}`;
    await call(`/api/student/drafts/${draftId}`,{cookie:student.cookie,method:'PUT',body:{graph,baseRevision:0,mutationId:`save-${draftId}`}});
-   const payload={draftId,revision:1,submissionId:`rated-${chapterId}-${taskId}`},stars=chapterId===3?index%3+1:chapterId===4?1:4-chapterId;
+   const payload={draftId,revision:1,submissionId:`rated-${chapterId}-${taskId}`,offline:true},stars=chapterId===3?index%3+1:chapterId===4?1:4-chapterId;
    if(chapterId===1){
     for(const [i,selfAssessment] of [null,[],{},1,{goalId:2,stars:2},{goalId:'1',stars:2},{goalId:1,stars:0},{goalId:1,stars:4},{goalId:1,stars:1.5},{goalId:1,stars:'2'},{goalId:1,stars:true}].entries())await post({...payload,submissionId:`invalid-${i}`,selfAssessment},400);
     await post({...payload,submissionId:'earlier-rating',selfAssessment:{goalId:1,stars:1}});

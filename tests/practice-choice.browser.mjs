@@ -25,6 +25,7 @@ try{
  browser=await playwright.chromium.launch({headless:true,...existsSync(chrome)?{executablePath:chrome}:{},args:['--no-sandbox']});
  const teacherContext=await browser.newContext({viewport:{width:1440,height:1000}});
  const studentContext=await browser.newContext({viewport:{width:1440,height:1000},hasTouch:true});
+ await studentContext.addInitScript(()=>{const Native=window.EventSource;window.__practiceChoiceStreams=[];window.EventSource=class extends Native{constructor(...args){super(...args);window.__practiceChoiceStreams.push(this);}};});
  teacher=await teacherContext.newPage();student=await studentContext.newPage();
  for(const [name,page] of [['teacher',teacher],['student',student]])page.on('pageerror',error=>errors.push(`${name}: ${error.message}`));
  const cdp=await studentContext.newCDPSession(student);
@@ -100,10 +101,9 @@ try{
  assert.equal((await current()).learner.taskVersion,beforeDenied.learner.taskVersion);
  await command('chapter',{chapterId:3});await student.locator('#practiceTasks').waitFor();
  assert.equal(await student.locator('#practiceTasks [data-practice-task]').count(),4);
- assert.equal(await student.locator('#practiceTasks button:enabled').count(),0);
- await api(studentContext,'/api/student/task',{method:'POST',body:{taskId:'tea'},status:409});
- checks.push('task choices appear only in chapter 3 and remain locked until practice opens');
- await teacher.locator('#practice').click();await poll(()=>button('rice-roll').isEnabled(),'chapter 3 practice opens');
+ await poll(()=>button('rice-roll').isEnabled(),'chapter 3 practice opens immediately');
+ assert.equal(await student.locator('#practiceTasks button:enabled').count(),4);
+ checks.push('task choices appear only in chapter 3 and teacher switching immediately opens all four choices');
 
  for(const task of tasks){
   await select(task.id,{touch:task.id==='fish'});
@@ -125,20 +125,28 @@ try{
  await select('plant',{touch:true});await assertRestored('plant');
  await student.reload();await student.locator('#practiceTasks').waitFor();await assertRestored('plant');
  assert.equal((await current()).learner.id,learnerId);
- // Observe the real periodic request; do not invoke application synchronization.
- const heartbeat=await student.waitForResponse(response=>new URL(response.url()).pathname===`/api/sessions/${session.id}/state`&&response.request().method()==='GET'&&response.ok(),{timeout:15000});
+ // Healthy SSE uses a real presence acknowledgement rather than polling the
+ // complete room. Then close that stream to exercise the real GET fallback.
+ let stateRequests=0;
+ const observeState=request=>{if(new URL(request.url()).pathname===`/api/sessions/${session.id}/state`&&request.method()==='GET')stateRequests++;};
+ student.on('request',observeState);
+ const heartbeat=await student.waitForResponse(response=>new URL(response.url()).pathname==='/api/student/ack'&&response.request().method()==='POST'&&response.ok(),{timeout:15000});
  assert.equal((await heartbeat.json()).assignment.taskId,'plant');await assertRestored('plant');
- // A delayed heartbeat can carry the same classroom version but an older task
- // version. Deliver it through the real fetch path, after the newer selection.
+ assert.equal(stateRequests,0,'a healthy stream uses presence acknowledgements without full-state polling');
+ // A delayed fallback can carry the same classroom version but an older task
+ // version. Deliver it through the actual fetch path after the newer selection.
  let staleDelivered=false;
  const staleRoute=async route=>{staleDelivered=true;await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(staleTeaState)});};
  await student.route(`**/api/sessions/${session.id}/state`,staleRoute);
- await poll(()=>staleDelivered,'older taskVersion heartbeat delivered',15000);
+ await student.evaluate(()=>window.__practiceChoiceStreams.forEach(stream=>stream.close()));
+ await poll(()=>staleDelivered,'older taskVersion delivered through disconnected-stream fallback',15000);
  await student.waitForTimeout(200);await assertRestored('plant');
  assert.equal((await student.evaluate(async()=>{const db=await import('/db.js');return db.get('participant');})).learner.taskId,'plant');
  await student.unroute(`**/api/sessions/${session.id}/state`,staleRoute);
+ student.off('request',observeState);
+ await student.reload();await student.locator('#practiceTasks').waitFor();await assertRestored('plant');
  for(const id of ['fish','rice-roll','tea','plant']){await select(id);await assertRestored(id);}
- checks.push('map click and touch choose tasks; returning, refreshing, real heartbeat and a delayed older taskVersion state preserve the selected task and exact graph identities');
+ checks.push('map click and touch choose tasks; returning, refreshing, presence acknowledgement and an older taskVersion from the disconnected-stream fallback preserve the selected task and exact graph identities');
 
  await student.locator('#runButton').click();await poll(()=>student.locator('#stopButton').isEnabled(),'plant animation starts');
  assert.equal(await student.locator('#practiceTasks button:enabled').count(),0,'running cannot switch tasks');
@@ -175,11 +183,12 @@ try{
 
  const selectedBeforeChapter=await current();await command('chapter',{chapterId:2});await student.locator('#sceneTitle').filter({hasText:'水果'}).waitFor();
  assert.equal(await student.locator('#practiceTasks').isVisible(),false);
- await command('practice');await poll(()=>student.locator('#runButton').isEnabled(),'chapter 2 practice opens');
+ await poll(()=>student.locator('#actionCards [data-action]').first().isEnabled(),'chapter 2 operation cards open immediately');
+ assert.equal(await student.locator('#submitButton').isEnabled(),true,'chapter 2 permits editing and self assessment before forming the flowchart');
  await api(studentContext,'/api/student/task',{method:'POST',body:{taskId:'tea'},status:409});
  assert.equal((await current()).learner.taskId,'fish');assert.equal((await current()).learner.taskVersion,selectedBeforeChapter.learner.taskVersion);
- await command('chapter',{chapterId:3});await student.locator('#practiceTasks').waitFor();assert.equal(await student.locator('#practiceTasks button:enabled').count(),0);
- await command('practice');await assertRestored('fish');
+ await command('chapter',{chapterId:3});await student.locator('#practiceTasks').waitFor();await poll(()=>student.locator('#practiceTasks button:enabled').count().then(count=>count===4),'returning to chapter 3 immediately opens choices');
+ await assertRestored('fish');
  const finalWorks=await works();
  for(const [id,draft] of saved){const final=finalWorks.drafts.find(item=>item.id===draft.id);assert.deepEqual(final.graph.nodes,draft.graph.nodes,`${id} retained after cross-chapter return`);}
  assert.equal(finalWorks.drafts.filter(draft=>draft.learnerId===learnerId&&draft.chapterId===3).length,4);

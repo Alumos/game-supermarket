@@ -187,7 +187,7 @@ export class SupermarketWorld {
     this.labels=[];if(this.chapterId===4)this._outdoorBase();else this._base();if(this.chapterId===1)this._drink();else if(this.chapterId===2)this._juice();else if(this.chapterId===3)this._practice();else this._delivery();
     this._drawRoutes();this._hotspots();
     for(const h of this.hotspots.filter(h=>h.npc)){const p=this._xy(h);this._person(p.x,p.y,{npc:true,role:h.id});}
-    const a=this._xy(this.actor);if(this.chapterId===4)this._courier(a.x,a.y);else this._person(a.x,a.y,{face:this.actor.face,walk:this.actor.walk,moving:this.actor.moving,holding:this.state.holding,inventory:this.state.inventory});
+    const a=this._xy(this.actor);if(this.chapterId===4){this._courier(a.x,a.y);this._deliveryFlagTransfer(a.x,a.y);}else this._person(a.x,a.y,{face:this.actor.face,walk:this.actor.walk,moving:this.actor.moving,holding:this.state.holding,inventory:this.state.inventory});
     this._foreground();
     const c=this.ctx,w=this.canvas.width,h=this.canvas.height,{view,scaleX,scaleY,ox,oy}=this._projection(w,h);
     c.fillStyle='#243e41';c.fillRect(0,0,w,h);c.imageSmoothingEnabled=false;c.drawImage(this.buffer,view.x,0,view.width,HEIGHT,ox,oy,Math.round(view.width*scaleX),Math.round(HEIGHT*scaleY));
@@ -414,6 +414,9 @@ export class SupermarketWorld {
       }
       this.shadow(p.x,p.y+12,34,7);this.r(p.x-14,p.y-12,28,25,'#f3eed3');this.r(p.x-11,p.y-10,22,20,color);
       this.text(id,p.x,p.y,17,'#fff7df');
+      // The pennant stays in the upper-left lawn, clear of roads and address text.
+      // Orders are authoritative: replays, resets and state replacement need no flag cache.
+      if(status!=='delivered')this._deliveryFlag(p.x-27,p.y-17,{failed:status==='spoiled'});
       const labelX=p.x+66;
       if(cold)this.text('❄ 冷藏',labelX,p.y-35,17,color,'center','750',true);
       if(status!=='pending')this.text(status==='delivered'?'✓':'×',p.x+22,p.y-18,18,color,'center','800',true);
@@ -425,6 +428,27 @@ export class SupermarketWorld {
     const coordinateGroups=[['A','B','C','D','E'],['F','G','H','I','W']];
     coordinateGroups.forEach((ids,column)=>ids.forEach((id,row)=>{const point=NODES[id];if(point)this.text(`${id}（${point.x},${point.y}）`,column?398:101,359+row*16,17,P.deep,'left','700',true);}));
   }
+  _deliveryFlag(x,y,{failed=false,scale=1}={}){
+    const r=(dx,dy,w,h,color)=>this.r(x+dx*scale,y+dy*scale,w*scale,h*scale,color);
+    r(-3,0,7,2,failed?'#8a8170':'#6f8062');
+    r(0,-22,2,23,'#5a6d57');r(0,-22,1,20,'#e6d4a0');
+    r(-13,-22,13,9,failed?'#8d8a78':'#c96c4c');
+    r(-12,-21,11,2,failed?'#b6b09b':'#edb57b');
+    r(-13,-14,4,1,failed?'#746f60':'#a75440');
+    if(failed)for(let i=0;i<5;i++){r(-10+i,-21+i,1,1,'#edd5ba');r(-6-i,-21+i,1,1,'#edd5ba');}
+  }
+  _deliveryFlagFlight(){
+    const a=this.anim;
+    if(a?.event.type!=='delivery'||!a.applied||a.event.status!=='delivered')return null;
+    if(!this.state.orders?.some(order=>order.point===a.event.point&&order.status==='delivered'))return null;
+    return {point:a.event.point,t:Math.max(0,Math.min(1,(a.elapsed/a.duration-.65)/.35))};
+  }
+  _deliveryFlagTransfer(x,y){
+    const flight=this._deliveryFlagFlight(),node=flight&&NODES[flight.point];if(!node)return;
+    const p=this._xy(node),t=flight.t,u=t*t*(3-2*t);
+    // The flight shares the event clock, so pausing, stopping and fast playback agree.
+    this._deliveryFlag(p.x-27+(x-29-(p.x-27))*u,p.y-17+(y-40-(p.y-17))*u-Math.sin(t*Math.PI)*18,{scale:1-.45*u});
+  }
   _courier(x,y){
     x=Math.round(x);y=Math.round(y);const moving=this.actor.moving,bob=moving?Math.round(Math.sin(this.actor.walk*Math.PI)*1.5):0;
     this.shadow(x,y+8,55,10);
@@ -434,6 +458,12 @@ export class SupermarketWorld {
     this.r(x-12,y-39+bob,21,20,'#e3bb68');this.r(x-9,y-39+bob,17,4,'#f2d392');this.r(x+7,y-33+bob,5,15,'#ddb282');this.r(x+9,y-23+bob,8,4,'#dfb78b');
     // An insulated box and helmet identify the courier even on a small tablet.
     this.r(x-28,y-40+bob,21,26,'#315f5d');this.r(x-26,y-38+bob,17,21,'#7da88f');this.r(x-25,y-36+bob,15,5,'#c4d4a9');this.r(x-21,y-29+bob,7,8,'#f0dab0');this.r(x-19,y-27+bob,3,4,'#709282');
+    const flight=this._deliveryFlagFlight(),collected=(this.state.orders||[]).filter(order=>order.status==='delivered'&&order.point!==flight?.point).length;
+    if(collected){
+      // A compact bundle and count keep six collected flags within the backpack.
+      for(let i=0;i<Math.min(3,collected);i++)this._deliveryFlag(x-25+i*5,y-39+bob+i%2*3,{scale:.5});
+      this.r(x-25,y-29+bob,15,12,'#f3e5ba');this.text(String(collected),x-18,y-23+bob,10,'#365f52','center','800');
+    }
     this.r(x-10,y-56+bob,18,17,'#e4bb90');this.r(x-11,y-58+bob,20,8,'#cb7551');this.r(x-7,y-62+bob,12,6,'#e7a26a');this.r(x-10,y-56+bob,19,2,'#f1c28a');this.r(x+5,y-48+bob,2,3,'#35544f');this.r(x+8,y-51+bob,4,5,'#e9c195');this.r(x+4,y-40+bob,5,3,'#bd8b68');
     if(this.anim?.event.type==='delivery'){const status=this.anim.event.status;this._sign(status==='spoiled'?'× 超时':'✓ 送达',x,y-80,status==='spoiled'?'#b55f50':'#497f64',92);}
   }

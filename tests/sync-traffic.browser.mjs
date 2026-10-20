@@ -73,7 +73,7 @@ try{
 
   const chapterStart=Date.now();session=await command(session,'chapter',{chapterId:2});
   await page.waitForFunction(()=>document.querySelector('#sceneTitle').textContent.includes('水果'),null,{timeout:5000});
-  await page.waitForFunction(()=>document.querySelector('#classNotice').textContent.includes('讲解'));
+  await page.waitForFunction(()=>!document.querySelector('#submitButton').disabled);
   let acknowledged=false;
   for(let attempt=0;attempt<30&&!acknowledged;attempt++){
     const state=await api(teacher,`/api/sessions/${session.id}/state`);

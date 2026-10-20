@@ -43,7 +43,7 @@ try{
   teacher.once('dialog',dialog=>dialog.accept());
   await teacher.locator('#chapters [data-chapter="2"]').click();
   await poll(async()=>(await api(teacherContext,`/api/sessions/${session.id}/state`)).session.chapterId===2,'teacher selects chapter 2');
-  await teacher.locator('#practice').click();
+  assert.equal(await teacher.locator('#practice').isDisabled(),true,'chapter switch already opens practice');
   await poll(async()=>(await api(teacherContext,`/api/sessions/${session.id}/state`)).session.phase==='practice','teacher opens fruit practice');
   await student.goto(origin+'/');await poll(()=>student.locator('#accountButton').textContent().then(text=>text.trim()==='A1'),'student automatically joins');
   await student.locator('#transition').waitFor({state:'hidden'});await poll(()=>student.locator('[data-action=wash_orange]').isEnabled(),'fruit palette unlocked');

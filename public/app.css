@@ -165,7 +165,9 @@
 .control-panel .action-card:not(.block-palette):hover:enabled{background:#ccdef8;border-color:#3d78b3}
 .control-panel .action-card:active:enabled,.coordinate-card:active:enabled{cursor:grabbing}
 .coordinate-card{background:#e3efff;color:#254e7a;border-color:#82a7d0;box-shadow:0 2px 0 #c3d6ed;cursor:grab}
-.coordinate-card b{font-size:11px;white-space:nowrap}
+.coordinate-card{min-width:0}
+#coordinateCards{grid-template-columns:repeat(2,minmax(0,1fr))}
+.coordinate-card b{max-width:100%;font-size:11px;white-space:normal;overflow-wrap:anywhere}
 .coordinate-card.cold-coordinate{background:#d9f2f8;border:2px solid #54a9bb;color:#195f70}
 .coordinate-card.waypoint-coordinate{border-style:dashed;border-color:#6b92bb;background:#ecf3fc}
 .coordinate-tools h3{color:#244f7c}

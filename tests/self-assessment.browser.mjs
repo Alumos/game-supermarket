@@ -49,7 +49,7 @@ try{
  async function chapter(id){
   await command('chapter',{chapterId:id});
   await poll(()=>student.locator('#sceneTitle').textContent().then(text=>text.includes({1:'饮料',2:'水果',3:'实践',4:'配送'}[id])),`chapter ${id} enters`);
-  await command('practice');await poll(()=>student.locator('#submitButton').isEnabled(),`chapter ${id} opens`);
+  await poll(()=>student.locator('#submitButton').isEnabled(),`chapter ${id} opens directly`);
  }
  async function openRating(id){
   await student.locator('#submitButton').tap();await student.locator('#submitDialog').waitFor({state:'visible'});
@@ -102,11 +102,13 @@ try{
  // A cancelled choice must not silently carry forward into a later submission.
  await chooseStars(3);if(output)await student.screenshot({path:join(output,'self-assessment-tablet-3-stars.png')});await student.locator('#submitDialog .dialog-close').tap();
  const chapter1First=await submitRating(1,1);
+ await poll(()=>student.locator('#sceneTitle').textContent().then(text=>text.includes('水果')),'first evaluation advances to fruit');await chapter(1);
  const chapter1Latest=await submitRating(1,3);
  assert.notEqual(chapter1First.id,chapter1Latest.id);
  checks.push('tablet touch selects exactly one of 1–3 stars; unselected submit is disabled; cancellation resets the choice; repeat submissions preserve different ratings');
  await chapter(2);const chapter2=await submitRating(2,2);
  await chapter(3);await chooseTask('tea');const tea=await submitRating(3,1);
+ await poll(()=>student.locator('#sceneTitle').textContent().then(text=>text.includes('配送')),'practice evaluation advances to delivery');await chapter(3);
  await chooseTask('fish');const fish=await submitRating(3,3);
  assert.equal(tea.taskId,'tea');assert.equal(fish.taskId,'fish');
  await chapter(4);
