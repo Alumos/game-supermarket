@@ -70,7 +70,7 @@ export class GameAudio {
         const Audio = this.env.AudioContext || this.env.webkitAudioContext;
         this.context = new Audio();
         this.master = this.context.createGain();
-        this.master.gain.value = 0.16;
+        this.master.gain.value = 0.30;
         this.master.connect(this.context.destination);
         this.noise = this.context.createBuffer(1, Math.ceil(this.context.sampleRate * 0.35), this.context.sampleRate);
         const data = this.noise.getChannelData(0);
