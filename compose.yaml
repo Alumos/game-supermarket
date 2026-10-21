@@ -2,7 +2,7 @@ name: game-supermarket
 
 services:
   supermarket:
-    image: ${SUPERMARKET_IMAGE:-ghcr.milu.moe/alumos/game-supermarket:v1.3.18}
+    image: ${SUPERMARKET_IMAGE:-ghcr.milu.moe/alumos/game-supermarket:v1.3.19}
     restart: unless-stopped
     init: true
     ports:

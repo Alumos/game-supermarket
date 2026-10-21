@@ -155,6 +155,7 @@ export class GameAudio {
       case 'peel_cut': rustle(.035,2600,.28);tone(310,170,.035,.16);break;
       case 'add_orange': tone(420,145,.11,.28,'sine');break;
       case 'start_juicer': tone(90,125,.24,.16,'sawtooth');rustle(.16,700,.13);break;
+      case 'serve_juice': rustle(.09,1800,.16);tone(520,780,.09,.14,'sine');tone(880,980,.07,.1,'triangle',.08);break;
       case 'package': tone(320,550,.06,.2);rustle(.07,1700,.18);break;
       case 'seaweed': rustle(.13,2200,.18);break;
       case 'rice': rustle(.1,1000,.2);tone(220,170,.055,.1);break;

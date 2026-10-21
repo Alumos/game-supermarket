@@ -11,7 +11,7 @@ gameAudio.bindButton($('#soundButton'));
 const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-${Date.now().toString(36)}-${Array.from(globalThis.crypto?.getRandomValues?.(new Uint32Array(3))||[Math.random()*1e9,Math.random()*1e9]).map(n=>n.toString(36)).join('')}`, esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaultTask=ch=>['','drink-swap','fresh-juice','tea','delivery'][ch];
 const teacherDemoRequested=new URLSearchParams(location.search).get('mode')==='demo';
-const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,teacherDemoMode:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false,formingFlow:false};
+const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,teacherDemoMode:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false,formingFlow:false,floorChapterId:null,frontierChapterId:null};
 let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId,pendingProgression=null,browserIdentity;
 const scope=()=>state.teacherDemoMode?'teacher-demo':state.learner?.id||'practice';
 const graphKey=(ch=state.chapter,task=state.taskId)=>`draft:${scope()}:${ch}:${task}`;
@@ -27,6 +27,17 @@ const isFruitSorting=()=>isFruit()&&state.graph?.flowchartStage==='sorting';
 const deliveryDestinations=()=>Object.entries(DELIVERY_MAP.points).filter(([id])=>!id.startsWith('J'));
 const allowed=()=>!state.joining&&!state.checkingClass&&!state.switchingTask&&!state.classUnavailable&&!state.authExpired&&!state.tabBlocked&&(!state.session||state.session.phase==='practice');
 const editable=()=>allowed()&&!state.running&&!state.demo&&!state.formingFlow;
+// Students advance by rating each station, but may walk back to any station they
+// already unlocked. `floor` is the teacher's chapter and `frontier` the newest
+// station this student unlocked; without a classroom the tabs stay free.
+const chapterOpen=ch=>{
+  if(state.running||state.demo||state.formingFlow||state.switchingTask||state.joining||state.checkingClass)return false;
+  if(!state.session)return true;
+  if(state.session.phase!=='practice')return false;
+  const floor=state.floorChapterId||state.session.chapterId||1,frontier=Math.max(floor,state.frontierChapterId||state.session.chapterId||1);
+  return ch>=floor&&ch<=frontier;
+};
+const canVisitChapter=ch=>chapterOpen(ch)&&ch!==state.chapter;
 const cleanGraph=(ch=state.chapter,t=state.taskId)=>({schemaVersion:1,chapterId:ch,taskId:t,contentVersion:'1.0.0',...(t==='fresh-juice'?{flowchartStage:'sorting'}:{}),...(t==='delivery'?{deliveryCoordinates:'cartesian-y-up',deliveryRulesVersion:DELIVERY_RULES_VERSION}:{}),revision:0,nodes:[{id:uid(),kind:'start'},{id:uid(),kind:'end'}],edges:[]});
 const currentDeliveryDraft=graph=>{const normalized=normalizeDeliveryGraph(graph);if(normalized?.taskId==='fresh-juice'&&!normalized.flowchartStage)normalized.flowchartStage=normalized.nodes.some(n=>n.kind==='action')?'formed':'sorting';return normalized?.taskId==='delivery'&&deliveryRulesVersion(normalized)!==DELIVERY_RULES_VERSION?{...normalized,deliveryRulesVersion:DELIVERY_RULES_VERSION}:normalized;};
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4000);}
@@ -72,7 +83,7 @@ function renderConnection(){
 function renderChapter(){
   const chapter=CHAPTERS.find(c=>c.id===state.chapter),t=task(),delivery=isDelivery();
   document.body.classList.toggle('delivery-mode',delivery);
-  $('#chapters').innerHTML=CHAPTERS.map(c=>`<button class="chapter-tab ${c.id===state.chapter?'active':''}" data-chapter="${c.id}" ${state.session||state.running?'disabled':''}><b>0${c.id}</b><span>${esc(['','饮料区','水果区','实践区','配送区'][c.id])}</span></button>`).join('');
+  $('#chapters').innerHTML=CHAPTERS.map(c=>`<button class="chapter-tab ${c.id===state.chapter?'active':''} ${chapterOpen(c.id)?'':`locked`}" data-chapter="${c.id}" ${chapterOpen(c.id)?'':'disabled'} aria-disabled="${chapterOpen(c.id)?'false':'true'}" title="${chapterOpen(c.id)?`回到第${c.id}站`:`完成上一站的评价后开放`}"><b>0${c.id}</b><span>${esc(['','饮料区','水果区','实践区','配送区'][c.id])}</span></button>`).join('');
   $('#chapterNumber').textContent=`第${['','一','二','三','四'][state.chapter]}站 / 0${state.chapter}`;$('#sceneTitle').textContent=chapter.title;$('#npcName').textContent=t.npc;$('#dialogueText').textContent=chapter.story;
   $('#taskGoal').textContent=t.goal;$('#metrics').hidden=!delivery;$('#deliveryOrders').hidden=!delivery;$('#coordinateTools').hidden=!delivery;
   renderPracticeTasks();
@@ -107,14 +118,14 @@ function updateControls(){
   if(!allowed()&&$('#submitDialog').open)$('#submitDialog').close();
   $('#runButton').disabled=!edit||isFruitSorting();$('#submitButton').disabled=!edit;$('#clearButton').disabled=!edit;$('#chainButton').disabled=!edit||isFruit()&&!state.graph.nodes.some(n=>n.kind==='action');$('#connectButton').disabled=!edit;$('#undoButton').disabled=!edit||!state.undo.length;
   $$('#practiceTasks button').forEach(button=>button.disabled=!edit);
-  $$('.action-card').forEach(e=>e.disabled=!edit);$$('.chapter-tab').forEach(e=>e.disabled=!!state.session||running||state.joining||state.checkingClass);$('#pauseButton').disabled=!running||state.teacherPaused;$('#pauseButton').textContent=state.userPaused?'继续':'暂停';$('#stopButton').disabled=!running;$('#demoButton').disabled=running||state.tabBlocked||state.joining||state.checkingClass||state.switchingTask||state.classUnavailable||!!state.session&&['waiting','paused','ended'].includes(state.session.phase);
+  $$('.action-card').forEach(e=>e.disabled=!edit);$$('.chapter-tab').forEach(e=>{const open=chapterOpen(Number(e.dataset.chapter));e.disabled=!open;e.classList.toggle('locked',!open);});$('#pauseButton').disabled=!running||state.teacherPaused;$('#pauseButton').textContent=state.userPaused?'继续':'暂停';$('#stopButton').disabled=!running;$('#demoButton').disabled=running||state.tabBlocked||state.joining||state.checkingClass||state.switchingTask||state.classUnavailable||!!state.session&&['waiting','paused','ended'].includes(state.session.phase);
   $('#flowCanvas').classList.toggle('read-only',!edit);$('#connectButton').classList.toggle('active',state.connecting);$('#flowCanvas').classList.toggle('connecting',state.connecting);requestGraphLayout();
   updateConnectionTargets();
   world.setMode(running?'run':allowed()?'explore':'locked');
   world.setDrinkDragEnabled(state.chapter===1&&edit&&!running);
   $('#mapHint').textContent=running?(state.demo?'正在观看示范':isDelivery()?'正在执行配送积木':'正在按流程图行动'):isDelivery()?'底部查坐标 · 点道路可探路':state.chapter===1?'拖动饮料箱完成交换':'点地面走动 · 点师傅听提示';
   $$('#coordinateCards button, #flowNodes input').forEach(el=>el.disabled=!edit);
-  $('#chapters').querySelectorAll('button').forEach(b=>b.disabled=!!state.session||running||state.formingFlow||state.switchingTask||state.joining||state.checkingClass);
+  $('#chapters').querySelectorAll('button').forEach(b=>{const open=chapterOpen(Number(b.dataset.chapter));b.disabled=!open;b.setAttribute('aria-disabled',open?'false':'true');b.classList.toggle('locked',!open);b.title=open?(b.dataset.chapter===String(state.chapter)?'当前站':'回到第'+b.dataset.chapter+'站'):'完成上一站的评价后开放';});
   renderInspector();
 }
 function renderGraph(){
@@ -447,7 +458,7 @@ $('#flowNodes').addEventListener('pointerdown',e=>{
 $('#inspector').addEventListener('change',e=>{const n=state.graph.nodes.find(n=>n.id===state.selected);if(!n||!beforeEdit())return;if(e.target.hasAttribute('data-destination')){const p=DELIVERY_MAP.points[e.target.value];if(p)n.params={x:p.x,y:p.y};}else if(e.target.id==='nodeLabel'){const value=e.target.value.trim();if(value)n.label=value;else delete n.label;}else if(e.target.dataset.param){n.params[e.target.dataset.param]=e.target.value;}changed();});
 $('#inspector').addEventListener('click',e=>{const type=e.target.dataset.edit;if(!type)return;if(type==='done'){state.selected=null;renderGraph();return;}if(type==='up'||type==='down')moveNode(state.selected,type==='up'?-1:1);if(type==='delete'&&beforeEdit()){state.graph.nodes=state.graph.nodes.filter(n=>n.id!==state.selected);state.selected=null;chain();changed();}});
 $('#actionCards').addEventListener('click',e=>{if(Date.now()>=dragClickUntil&&e.target.closest('[data-action]'))toast('把操作卡拖到中间画布，就能添加。');});
-$('#chapters').addEventListener('click',e=>{const b=e.target.closest('[data-chapter]');if(b&&!state.session&&!state.running)changeChapter(Number(b.dataset.chapter));});
+$('#chapters').addEventListener('click',e=>{const b=e.target.closest('[data-chapter]');if(!b||state.running||state.demo||state.formingFlow||state.switchingTask)return;const ch=Number(b.dataset.chapter);if(ch===state.chapter)return;if(!canVisitChapter(ch)){toast(state.session?'完成上一站的评价后，这一站才会开放':'请先结束当前运行');return;}visitChapter(ch);});
 $('#practiceTasks').addEventListener('click',e=>{const button=e.target.closest('[data-practice-task]');if(button)selectPracticeTask(button.dataset.practiceTask);});
 function finishFlowFormation(){
   clearTimeout(formationTimer);$('#flowCanvas').classList.remove('flow-forming');state.formingFlow=false;
@@ -522,6 +533,31 @@ async function selectPracticeTask(taskId){
     else if(error.status===409)alignRoom().catch(()=>{});
     toast(error.message||'暂时无法切换，请连接课堂后再试');return false;
   }finally{state.switchingTask=false;renderPracticeTasks();renderNotice();updateControls();}
+}
+
+// Students may walk back to any station they already unlocked. The classroom
+// remembers where each student is looking so a refresh or another device returns
+// to the same station; the unlocked frontier on the server never moves back.
+async function visitChapter(ch){
+  if(!canVisitChapter(ch))return false;
+  const taskId=ch===3?(state.learner?.taskId||state.taskId):defaultTask(ch);
+  state.switchingTask=true;renderChapter();updateControls();
+  try{
+    if(state.session){
+      if(state.graph)await persistNow({kind:'draft'});
+      const data=await api('/api/student/chapter',{method:'POST',body:{chapterId:ch}});
+      await applyRoom(data,{authoritative:false});
+      if(state.chapter!==ch)await changeChapter(ch,data.assignment?.taskId||taskId,{transition:true});
+    }else await changeChapter(ch,taskId,{transition:true});
+    toast(ch<4?`已回到第${ch}站，之前的作品和评价都还在`:`已回到第${ch}站`);
+    return state.chapter===ch;
+  }catch(error){
+    if(error.data?.identityMismatch){state.authExpired=true;syncCurrentClass();}
+    else if(error.status===409)alignRoom().catch(()=>{});
+    toast(error.message||'暂时无法切换章节');return false;
+  }finally{
+    state.switchingTask=false;renderChapter();renderNotice();updateControls();
+  }
 }
 
 async function changeChapter(ch,taskId=defaultTask(ch),{fromTeacher=false,transition=true,saveCurrent=true}={}){
@@ -739,7 +775,7 @@ function acknowledgeRoom({force=false}={}){
 }
 function roomSignature(data){
   const {lastSeen,online,receivedVersion,appliedVersion,...learner}=data.learner||{};
-  return JSON.stringify({session:data.session,learner,assignment:data.assignment});
+  return JSON.stringify({session:data.session,learner,assignment:data.assignment,floor:data.floorChapterId,frontier:data.frontierChapterId});
 }
 function acceptRoom(data,options){roomApply=roomApply.then(()=>applyRoom(data,options)).catch(e=>{console.error(e);toast('课堂状态同步未完成，请检查连接');});return roomApply;}
 function progressionRoom(data,{authoritative=true}={}){
@@ -756,6 +792,10 @@ function progressionRoom(data,{authoritative=true}={}){
 function advanceAfterAssessment(graph,chapterEpoch){
   roomApply=roomApply.then(async()=>{
     if(state.teacherDemoMode||graph.chapterId>=4||state.chapter!==graph.chapterId)return;
+    // Only the newest unlocked station moves a student on. Re-rating a station
+    // they walked back to keeps them there and just records the new stars.
+    const frontier=Math.max(state.floorChapterId||1,state.frontierChapterId||state.session?.chapterId||graph.chapterId);
+    if(graph.chapterId<frontier)return;
     if(state.session){
       if(state.session.phase!=='practice'||(state.session.chapterEpoch??0)!==chapterEpoch)return;
       pendingProgression={sessionId:state.session.id,chapterEpoch,chapterId:graph.chapterId+1};
@@ -780,6 +820,9 @@ async function applyRoom(data,{authoritative=true}={}){
       assignment:data.assignment?{...data.assignment,taskVersion:currentTaskVersion,...(data.session.chapterId===3?{taskId:state.learner.taskId,draftId:`${state.learner.id}-3-${state.learner.taskId}`}:{})}:state.assignment};
   }
   const previous=state.session,unchanged=roomSignature(data)===roomSignature(state),chapterChanged=data.session.chapterId!==state.chapter,changed=chapterChanged||data.assignment?.taskId&&data.assignment.taskId!==state.taskId;
+  // The station bounds tell the student which tabs are reachable right now.
+  if(data.floorChapterId!==undefined)state.floorChapterId=data.floorChapterId;
+  if(data.frontierChapterId!==undefined)state.frontierChapterId=data.frontierChapterId;
   state.session=data.session;if(data.learner)state.learner=data.learner;if(data.assignment)state.assignment=data.assignment;
   if(unchanged&&!changed&&state.teacherPaused===(state.session.phase==='paused')){renderNotice();acknowledgeRoom();return;}
   await safeSet('participant',{session:state.session,learner:state.learner,assignment:state.assignment});
@@ -814,7 +857,7 @@ function startTabLease(){
 }
 async function enterClass(data){
   const sameIdentity=state.learner?.id===data.learner.id&&state.session?.id===data.session.id;
-  clearTimeout(saveTimer);state.authExpired=true;state.classUnavailable=false;state.learner=data.learner;state.session=data.session;state.assignment=data.assignment||null;state.tabBlocked=false;state.conflict=null;renderConflict();
+  clearTimeout(saveTimer);state.authExpired=true;state.classUnavailable=false;state.learner=data.learner;state.session=data.session;state.assignment=data.assignment||null;if(data.floorChapterId!==undefined)state.floorChapterId=data.floorChapterId;if(data.frontierChapterId!==undefined)state.frontierChapterId=data.frontierChapterId;state.tabBlocked=false;state.conflict=null;renderConflict();
   if(!sameIdentity){
     state.chapter=data.session.chapterId;state.taskId=data.assignment?.taskId||(state.chapter===3?data.learner.taskId:defaultTask(state.chapter));
     state.graph=cleanGraph();chain();state.selected=null;state.undo=[];state.runs=[];state.feedback=[];

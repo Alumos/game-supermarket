@@ -79,6 +79,33 @@ test('teacher chapter commands force a new practice epoch without losing unlocke
  await h.command('next');assert.equal(h.session.chapterEpoch,3);assert.equal(h.session.chapterId,4);assert.equal(h.session.phase,'practice');assert.equal((await h.state('two')).assignment.chapterId,4);await h.save('two',await h.state('two'));
 });
 
+test('students can walk back to unlocked stations without losing the frontier',async t=>{
+ const h=await classroom(t);await h.join('one');await h.join('two');await h.command('practice');
+ const first=await h.save('one',await h.state());
+ const advanced=await h.submit('one',first,{selfAssessment:{goalId:1,stars:3}});
+ assert.equal(advanced.session.chapterId,2);assert.equal(advanced.frontierChapterId,2);assert.equal(advanced.floorChapterId,1);
+ // Walking back is allowed and keeps the unlocked frontier where it was.
+ const back=await h.call('/api/student/chapter',{who:'one',method:'POST',body:{chapterId:1}});
+ assert.equal(back.session.chapterId,1);assert.equal(back.assignment.chapterId,1);assert.equal(back.frontierChapterId,2);
+ assert.equal(back.session.phase,'practice','an earlier station stays open for practice');
+ // Re-rating the earlier station records the stars but must not jump the student forward.
+ const reRated=await h.submit('one',first,{selfAssessment:{goalId:1,stars:1}});
+ assert.equal(reRated.session.chapterId,1);assert.equal(reRated.frontierChapterId,2);
+ assert.equal(reRated.submission.selfAssessment.stars,1);
+ // Forward again to the frontier, then the next rating still advances normally.
+ const forward=await h.call('/api/student/chapter',{who:'one',method:'POST',body:{chapterId:2}});
+ assert.equal(forward.session.chapterId,2);
+ const second=await h.save('one',forward);
+ const third=await h.submit('one',second,{selfAssessment:{goalId:2,stars:2}});
+ assert.equal(third.session.chapterId,3);assert.equal(third.frontierChapterId,3);
+ // A station beyond the frontier is still closed, and so is one behind the teacher.
+ await h.call('/api/student/chapter',{who:'one',method:'POST',body:{chapterId:4},status:409});
+ assert.equal((await h.state('two')).session.chapterId,1,'walking back is personal, never a class command');
+ await h.command('chapter',{chapterId:3});
+ await h.call('/api/student/chapter',{who:'one',method:'POST',body:{chapterId:1},status:409});
+ assert.equal((await h.state()).session.chapterId,3);
+});
+
 // The server has not seen stations two or three when the teacher overrides the
 // local offline journey. Replaying each rating must authorize the next upload
 // without restoring that old journey as the learner's current assignment.

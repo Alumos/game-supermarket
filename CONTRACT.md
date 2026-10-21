@@ -11,7 +11,7 @@ Each TASKS entry: {id,chapterId,name,npc,description,goal,actions:[{actionId,lab
 
 Action IDs:
 - Chapter 1 move_crate params {from:"A",to:"C"}.
-- Chapter 2 fresh-juice: wash_orange → peel_cut → add_orange → start_juicer → pack_juice, labels 清洗橙子 → 去皮切块 → 放入橙肉 → 启动机器榨汁 → 打包饮品. Loading must precede starting the juicer; each step requires the previous step.
+- Chapter 2 fresh-juice: wash_orange → peel_cut → add_orange → start_juicer → serve_juice, labels 清洗橙子 → 去皮切块 → 放入橙肉 → 启动机器榨汁 → 果汁出品. Loading must precede starting the juicer; serving requires the juicer to have run, and each step requires the previous step.
 - Chapter 3 rice-roll: seaweed,rice,filling,roll,pack; tea: cup,water,steep,remove_bag,lid; plant: soil,plant,fill,water_plant,label_plant; fish: fishfood,open_feed,feed,close_feed,record_feed. Plant's last two steps may swap. Fish's first two and last two may swap, with feed requiring both initial steps.
 - Chapter 4 delivery: move_to params {x:integer,y:integer}. A block walks a continuous horizontal or vertical road only. Students add intermediate coordinates at turns. Diagonal moves, off-road targets and straight lines through buildings return useful errors and leave the successful prefix untouched. No teleportation or implicit turn routing during programmed moves.
 

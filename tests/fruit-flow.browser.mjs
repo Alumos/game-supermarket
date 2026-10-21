@@ -31,7 +31,7 @@ try{
   const ids=()=>nodes().evaluateAll(elements=>elements.map(el=>el.dataset.node));
   const labels=()=>nodes().locator('.node-copy strong').allTextContents();
   const saved=()=>page.evaluate(async()=>await(await import('/db.js')).get('draft:practice:2:fresh-juice'));
-  const expected=['清洗橙子','去皮切块','放入橙肉','启动机器榨汁'];
+  const expected=['清洗橙子','去皮切块','放入橙肉','启动机器榨汁','果汁出品'];
   async function settled(){await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}
   async function idle(){await page.waitForFunction(()=>!document.querySelector('.layout-in-motion,.flow-shifting,.flow-forming'));await settled();}
   async function poll(check,label,timeout=10000){const until=Date.now()+timeout;while(Date.now()<until){if(await check())return;await page.waitForTimeout(60);}throw new Error(`Timed out: ${label}`);}
@@ -100,21 +100,29 @@ try{
   await sorting(0);assert.equal(await page.locator('#chainButton').isDisabled(),true,'empty sorting cannot form a flowchart');
   await shot('fruit-empty');checks.push('fresh fruit canvas has no start/end, arrows or ports; empty formation and execution are disabled');
 
-  for(const action of ['peel_cut','wash_orange','add_orange','start_juicer'])await append(action,{touch:action==='add_orange'});
-  await sorting(4);assert.deepEqual(await labels(),[expected[1],expected[0],...expected.slice(2)]);
+  for(const action of ['peel_cut','wash_orange','add_orange','start_juicer','serve_juice'])await append(action,{touch:action==='add_orange'});
+  await sorting(5);assert.deepEqual(await labels(),[expected[1],expected[0],...expected.slice(2)]);
   const unsorted=await ids(),target=await nodes().nth(1).boundingBox();
   await drag(nodes().first(),{x:target.x+target.width/2,y:target.y+target.height*.9});
   const order=[unsorted[1],unsorted[0],...unsorted.slice(2)];
   assert.deepEqual(await ids(),order,'pointer reorder puts preparation steps in the chosen order');
-  assert.deepEqual(await labels(),expected);await sorting(4);
+  assert.deepEqual(await labels(),expected);await sorting(5);
   await poll(async()=>JSON.stringify((await saved())?.graph.nodes.filter(n=>n.kind==='action').map(n=>n.id))===JSON.stringify(order),'sorting saved');
-  await shot('fruit-sorted');await page.reload();await page.locator('#transition').waitFor({state:'hidden'});await sorting(4);assert.deepEqual(await ids(),order);
-  checks.push('mouse and touch drags add four operation cards; real reorder changes sequence; unformed order survives refresh');
+  await shot('fruit-sorted');await page.reload();
+  // The transition overlay starts hidden, so wait for the restored fruit scene
+  // and its cards instead of asserting against the still-empty document.
+  await poll(()=>page.locator('#sceneTitle').textContent().then(text=>text.includes('水果')),'fruit scene restores after reload');
+  await poll(()=>nodes().count().then(count=>count===5),'sorted cards restore after reload');
+  await sorting(5);assert.deepEqual(await ids(),order);
+  checks.push('mouse and touch drags add five operation cards; real reorder changes sequence; unformed order survives refresh');
 
   await form(order,{record:true});await shot('fruit-formed');
-  await poll(async()=>(await saved())?.graph.edges.length===5,'formed draft saved');
+  await poll(async()=>(await saved())?.graph.edges.length===6,'formed draft saved');
   const formedGraph=(await saved()).graph;
-  await page.reload();await page.locator('#transition').waitFor({state:'hidden'});await formed(order);
+  await page.reload();
+  await poll(()=>page.locator('#sceneTitle').textContent().then(text=>text.includes('水果')),'formed scene restores after reload');
+  await poll(()=>page.locator('#flowNodes .terminal').count().then(count=>count===2),'formed terminals restore after reload');
+  await formed(order);
   assert.deepEqual((await saved()).graph,formedGraph,'refresh preserves generated draft and graph metadata');
   await shot('fruit-formed-reloaded');checks.push('button forms terminals and arrows with visible animation, preserving card order and the generated draft across refresh');
   const arrowPoint=await page.locator('#flowEdges path[data-edge]').first().evaluate(el=>{const point=el.getPointAtLength(el.getTotalLength()/2),screen=new DOMPoint(point.x,point.y).matrixTransform(el.getScreenCTM());return {x:screen.x,y:screen.y};});
@@ -146,11 +154,11 @@ try{
   await poll(()=>page.locator('#runButton').isEnabled(),'run ends');await shot('fruit-run-completed');
   const runs=await page.evaluate(async()=>(await(await import('/db.js')).all('run:practice:')).map(entry=>entry.value));
   const completed=runs.find(run=>run.chapterId===2&&run.status==='completed');assert.ok(completed?.valid);
-  assert.equal(completed.executedNodes.length,6);assert.deepEqual(completed.graph.nodes.filter(n=>n.kind==='action').map(n=>n.id),order);
+  assert.equal(completed.executedNodes.length,7);assert.deepEqual(completed.graph.nodes.filter(n=>n.kind==='action').map(n=>n.id),order);
   const frames=await page.evaluate(()=>{window.__fruitRunRecording=false;return window.__fruitRunFrames;});
   writeFileSync(join(output,'run-frames.json'),JSON.stringify(frames,null,2));
   const sequence=frames.filter(frame=>frame.id).reduce((list,frame)=>list.at(-1)===frame.id?list:[...list,frame.id],[]);
-  assert.deepEqual(sequence,completed.executedNodes,'visible highlight follows start, four actions and end in execution order');
+  assert.deepEqual(sequence,completed.executedNodes,'visible highlight follows start, five actions and end in execution order');
   for(const id of [completed.executedNodes[0],completed.executedNodes.at(-1)]){
     const terminalFrames=frames.filter(frame=>frame.id===id);assert.ok(terminalFrames.every(frame=>frame.terminal));
     assert.ok(terminalFrames.at(-1).time-terminalFrames[0].time>=400,'start and end each visibly highlight for at least 400ms');
@@ -162,17 +170,19 @@ try{
 
   const last=await nodes().last().boundingBox();
   await drag(nodes().first(),{x:last.x+last.width/2,y:last.y+last.height*.9},{touch:true});
-  await sorting(4);assert.deepEqual(await ids(),[...order.slice(1),order[0]],'editing a generated graph resets it to sorting');
+  await sorting(5);assert.deepEqual(await ids(),[...order.slice(1),order[0]],'editing a generated graph resets it to sorting');
   await page.locator('#undoButton').click();await formed(order);
   const tools=await page.locator('.control-panel').boundingBox();
   await drag(nodes().last(),{x:tools.x+tools.width/2,y:tools.y+tools.height-70});
-  await sorting(3);assert.deepEqual(await ids(),order.slice(0,-1));
+  await sorting(4);assert.deepEqual(await ids(),order.slice(0,-1));
   await page.locator('#undoButton').click();await formed(order);await shot('fruit-undo-restored');
   await page.locator('#clearButton').click();await sorting(0);
   await page.locator('#undoButton').click();await formed(order);
   checks.push('touch reordering and drag-back deletion return generated work to sorting; undo restores exact formed order, terminals and arrows; clear/undo also restores it');
 
   for(const chapter of [1,2,3,4]){
+    // Switching stations briefly disables the tabs while the draft saves.
+    await poll(()=>page.locator(`[data-chapter="${chapter}"]`).isEnabled(),`chapter ${chapter} tab enabled`);
     await page.locator(`[data-chapter="${chapter}"]`).click();
     await page.locator('#transition').waitFor({state:'hidden'});await poll(()=>page.locator('#submitButton').isEnabled(),`chapter ${chapter} ready`);await idle();
     if(chapter!==2){
@@ -202,12 +212,16 @@ try{
     await db.set('run:practice:legacy-run',run);await db.set('submission:practice:legacy-submission',submission);
     return {draft,run,submission};
   });
-  await page.goto(origin+'/');await page.locator('#transition').waitFor({state:'hidden'});await idle();
+  await page.goto(origin+'/');
+  // The overlay starts hidden; wait for the legacy draft to render before asserting.
+  await poll(()=>page.locator('#sceneTitle').textContent().then(text=>text.includes('水果')),'legacy fruit scene opens');
+  await poll(()=>nodes().count().then(count=>count===5),'legacy cards render');
+  await idle();
   const legacyOrder=legacy.draft.nodes.filter(n=>n.kind==='action').map(n=>n.id);
   assert.deepEqual(await ids(),legacyOrder);assert.equal(await page.locator('#flowNodes .terminal').count(),2);
   assert.equal(await page.locator('#flowEdges path[data-edge]').count(),0,'legacy missing edges remain visible as an incomplete draft');
   assert.equal(await page.locator('#chainButton').isEnabled(),true,'legacy draft with actions exposes repair');
-  await form(legacyOrder);await poll(async()=>(await saved())?.graph.edges.length===5,'legacy repair saved');
+  await form(legacyOrder);await poll(async()=>(await saved())?.graph.edges.length===6,'legacy repair saved');
   assert.deepEqual((await saved()).graph.nodes,legacy.draft.nodes,'legacy repair preserves every existing node');
   const history=await page.evaluate(async()=>{const db=await import('/db.js');return {run:await db.get('run:practice:legacy-run'),submission:await db.get('submission:practice:legacy-submission')};});
   assert.deepEqual(history,{run:legacy.run,submission:legacy.submission},'repair leaves historical run and submission snapshots unchanged');

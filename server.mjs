@@ -59,8 +59,14 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
  const room=(id,a)=>{const s=get('session',id);if(!s)fail(404,'课堂不存在');need(a);if(a.role!=='teacher'&&a.sessionId!==id)fail(403,'只能查看自己的课堂');return s;};
  // A teacher chapter command starts a new epoch. Personal progress belongs to
  // that epoch, while unlocked history remains available for offline uploads.
- const learnerSession=(s,l)=>{const epoch=s.chapterEpoch||0,chapterId=l.personalChapterEpoch===epoch?Math.max(s.chapterId,l.personalChapterId||s.chapterId):s.chapterId;return {...s,chapterEpoch:epoch,chapterId,phase:chapterId!==s.chapterId&&!['paused','ended'].includes(s.phase)?'practice':s.phase,openedChapters:[...new Set([...(s.openedChapters||[]),...(l.personalOpenedChapters||[])])]};};
- const state=(s,a)=>{const currentSessionId=currentSession()?.id||null;if(a.role==='teacher')return {currentSessionId,session:s,learners:all('learner',{sessionId:s.id}).map(safeLearner)};const l=get('learner',a.learnerId),session=learnerSession(s,l),chapterId=session.chapterId,taskId=taskFor(chapterId,l);return {currentSessionId,session,learner:safeLearner(l),assignment:{chapterId,taskId,draftId:`${l.id}-${chapterId}-${taskId}`,taskVersion:l.taskVersion||0}};};
+ // `personalChapterId` is the learner's newest unlocked station (a frontier that
+ // only grows); `personalViewChapterId` is the station the learner looks at now.
+ // The view may move back to any unlocked station, but never behind the teacher's
+ // current chapter and never beyond the frontier.
+ const frontierChapter=(s,l)=>l.personalChapterEpoch===(s.chapterEpoch||0)?Math.max(s.chapterId,l.personalChapterId||s.chapterId):s.chapterId;
+ const viewChapter=(s,l)=>{const frontier=frontierChapter(s,l),view=l.personalViewEpoch===(s.chapterEpoch||0)?l.personalViewChapterId:null;return view?Math.min(frontier,Math.max(s.chapterId,view)):frontier;};
+ const learnerSession=(s,l)=>{const chapterId=viewChapter(s,l);return {...s,chapterEpoch:s.chapterEpoch||0,chapterId,phase:chapterId!==s.chapterId&&!['paused','ended'].includes(s.phase)?'practice':s.phase,openedChapters:[...new Set([...(s.openedChapters||[]),...(l.personalOpenedChapters||[])])]};};
+ const state=(s,a)=>{const currentSessionId=currentSession()?.id||null;if(a.role==='teacher')return {currentSessionId,session:s,learners:all('learner',{sessionId:s.id}).map(safeLearner)};const l=get('learner',a.learnerId),session=learnerSession(s,l),chapterId=session.chapterId,taskId=taskFor(chapterId,l);return {currentSessionId,session,learner:safeLearner(l),floorChapterId:s.chapterId,frontierChapterId:frontierChapter(s,l),assignment:{chapterId,taskId,draftId:`${l.id}-${chapterId}-${taskId}`,taskVersion:l.taskVersion||0}};};
  function works(sessionId,learnerId,since=0,includeHistory=true){const filter=learnerId?{learnerId}:{sessionId},historyFilter={...filter,since};return {learners:learnerId?[safeLearner(get('learner',learnerId))].filter(Boolean):all('learner',filter).map(safeLearner),drafts:all('draft',historyFilter),draftVersions:includeHistory?all('draftVersion',historyFilter):[],conflicts:includeHistory?all('conflict',historyFilter):[],runs:all('run',historyFilter),submissions:all('submission',historyFilter),feedback:all('feedback',historyFilter)};}
  // Overview projection happens inside SQLite, so large run traces and world
  // snapshots never enter the server's JS heap or the teacher's table cache.
@@ -214,9 +220,23 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
   const lm=p.match(/^\/api\/learners\/([^/]+)\/works$/);if(lm){need(a);const l=get('learner',lm[1]);if(!l)fail(404,'找不到小组');if(a.role!=='teacher'&&a.learnerId!==l.id)fail(403,'只能查看自己的作品');return send(works(l.sessionId,l.id,0,url.searchParams.get('history')!=='0'));}
   if(p==='/api/teacher/feedback'&&req.method==='POST'){need(a,'teacher');const l=get('learner',b.learnerId);if(!l)fail(404,'找不到小组');const f=put('feedback',{id:uid(),sessionId:l.sessionId,learnerId:l.id,chapterId:Number(b.chapterId),text:String(b.text||'').slice(0,3000),createdAt:Date.now()});notifyLearner(l.sessionId,l.id);notifyTeachers(l.sessionId,{works:true});return send({feedback:f});}
   if(p.startsWith('/api/student/')){need(a,'student');const expectedLearner=req.headers['x-supermarket-learner'];if(expectedLearner!==undefined&&expectedLearner!==a.learnerId)fail(409,'浏览器已切换学生身份，请先恢复当前课堂连接',{identityMismatch:true});const l=get('learner',a.learnerId);
+   if(p==='/api/student/chapter'&&req.method==='POST'){
+    // A student may look at any station the class has opened, plus the ones they
+    // have already unlocked themselves, but never behind the teacher's chapter
+    // and never beyond their own frontier.
+    const chapterId=Number(b.chapterId);
+    if(![1,2,3,4].includes(chapterId))fail(400,'章节无效');
+    const s=get('session',l.sessionId);if(!s)fail(404,'课堂已删除');
+    const session=learnerSession(s,l),floor=s.chapterId,frontier=frontierChapter(s,l);
+    if(session.phase!=='practice')fail(409,'老师尚未开放操作，请等待',{session});
+    if(chapterId<floor)fail(409,'老师已经进入后面的章节，请从当前章节继续',{session});
+    if(chapterId>frontier)fail(409,'先完成这一站的评价，才能进入下一站',{session});
+    l.personalViewChapterId=chapterId;l.personalViewEpoch=s.chapterEpoch||0;l.lastSeen=Date.now();put('learner',l);
+    notifyTeachers(l.sessionId,{roster:true});return send(state(s,a));
+   }
    if(p==='/api/student/task'&&req.method==='POST'){if(!engine.TASKS.some(t=>t.chapterId===3&&t.id===b.taskId))fail(400,'请选择有效的第三章任务');const s=writeGate(l,3);if(l.taskId!==b.taskId){l.taskId=b.taskId;l.taskVersion=(l.taskVersion||0)+1;l.lastSeen=Date.now();put('learner',l);notifyLearner(l.sessionId,l.id);notifyTeachers(l.sessionId,{roster:true});}return send(state(s,{...a,learner:l}));}
    if(p==='/api/student/works')return send(works(l.sessionId,l.id,0,url.searchParams.get('history')!=='0'));
-   if(p==='/api/student/ack'&&req.method==='POST'){const s=get('session',l.sessionId),session=learnerSession(s,l);l.lastSeen=Date.now();l.receivedVersion=Math.max(l.receivedVersion||0,Math.min(Number(b.receivedVersion??b.version)||0,s.version));if(b.chapterId===session.chapterId&&b.version===s.version){l.appliedVersion=s.version;l.chapterId=b.chapterId;}put('learner',l);notifyTeachers(l.sessionId,{roster:true});return send({ok:true,...state(s,a)});}
+   if(p==='/api/student/ack'&&req.method==='POST'){const s=get('session',l.sessionId),session=learnerSession(s,l);l.lastSeen=Date.now();l.receivedVersion=Math.max(l.receivedVersion||0,Math.min(Number(b.receivedVersion??b.version)||0,s.version));if(b.chapterId===session.chapterId&&b.version===s.version){l.appliedVersion=s.version;l.chapterId=frontierChapter(s,l);}put('learner',l);notifyTeachers(l.sessionId,{roster:true});return send({ok:true,...state(s,a)});}
    const dm=p.match(/^\/api\/student\/drafts\/([^/]+)$/);
    if(dm&&req.method==='PUT'){
     const g=b.graph;graphCheck(g,l);writeGate(l,g.chapterId,b);if(!b.mutationId)fail(400,'缺少保存编号');
@@ -253,7 +273,9 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
     const selfAssessment=assessmentFor(b,v.chapterId),s=writeGate(l,v.chapterId,b,b.source==='chapter'),session=learnerSession(s,l),run=b.runId?get('run',b.runId):null;
     if(b.runId&&(!run||run.learnerId!==l.id||run.draftId!==b.draftId||run.revision!==b.revision))fail(400,'运行与提交版本不匹配');
     const unlocksNext=b.source!=='chapter'&&selfAssessment&&v.chapterId<4;
-    const advances=unlocksNext&&v.chapterId===session.chapterId&&session.phase!=='ended'&&(b.chapterEpoch===undefined||b.chapterEpoch===session.chapterEpoch);
+    // Re-rating an older station must never pull the unlocked frontier back.
+    const frontier=frontierChapter(s,l),viewing=viewChapter(s,l);
+    const advances=unlocksNext&&v.chapterId===viewing&&session.phase!=='ended'&&(b.chapterEpoch===undefined||b.chapterEpoch===session.chapterEpoch);
     const historyChanged=unlocksNext&&!l.personalOpenedChapters?.includes(v.chapterId+1);
     let submission;
     // Keep the receipt and progress in the same commit so retries after a lost
@@ -263,7 +285,13 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
      // An old epoch cannot overrule a teacher command, but its queued rating
      // still authorizes the following offline station's work to be retained.
      if(historyChanged)l.personalOpenedChapters=[...new Set([...(l.personalOpenedChapters||[]),v.chapterId,v.chapterId+1])];
-     if(advances){l.personalChapterId=v.chapterId+1;l.personalChapterEpoch=session.chapterEpoch;l.chapterId=l.personalChapterId;}
+     if(advances){
+      // Only the newest unlocked station moves the learner forward; reviewing an
+      // earlier station saves the rating and leaves the view where the student put it.
+      const next=v.chapterId+1;l.personalChapterId=Math.max(frontier,next);l.personalChapterEpoch=session.chapterEpoch;
+      l.personalViewChapterId=v.chapterId===frontier?next:viewing;l.personalViewEpoch=session.chapterEpoch;
+      l.chapterId=l.personalChapterId;
+     }
      if(advances||historyChanged){l.lastSeen=Date.now();put('learner',l);}
      db.exec('COMMIT');
     }catch(error){db.exec('ROLLBACK');throw error;}

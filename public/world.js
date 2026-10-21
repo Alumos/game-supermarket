@@ -315,7 +315,7 @@ export class SupermarketWorld {
     else {this.r(x-11,y-8,22,18,'#db8a35');this.r(x-8,y-12,16,26,'#e99c40');this.r(x-5,y-8,14,18,'#efab4b');this.r(x-7,y-7,4,4,'#ffce75');this.r(x-1,y-14,3,4,'#7b8250');this.r(x+2,y-15,8,4,'#769456');}
   }
   _juice(){
-    const f=this.state.flags||{},washed=f.wash_orange||f.wash,cut=f.peel_cut||f.cut_orange||f.peel,loaded=f.load_orange||f.add_orange||f.load,blended=f.juice||f.blend||f.start_juicer;
+    const f=this.state.flags||{},washed=f.wash_orange||f.wash,cut=f.peel_cut||f.cut_orange||f.peel,loaded=f.load_orange||f.add_orange||f.load,blended=f.juice||f.blend||f.start_juicer,served=f.serve_juice||f.pack_juice;
     this._sign('水果区 · 每日鲜榨',320,115,'#bd8145',214);
     this._cabinet(58,151,126,100,'#9eac7b');this.r(64,156,114,48,'#c5cf9d');
     for(let i=0;i<6;i++)this._orange(78+(i%3)*38,170+Math.floor(i/3)*25);
@@ -331,9 +331,10 @@ export class SupermarketWorld {
     const running=this.anim?.event.actionId==='start_juicer'||this.anim?.event.actionId==='juice'||this.anim?.event.actionId==='blend';
     if(blended){for(let i=0;i<7;i++)this.r(496+(i*9)%29,188+(i*7+Math.floor(this.time*(running?22:0)))%34,3,2,'#ffda85');}
     this.r(492,241,38,13,'#5d8776');this.r(515,245,6,4,blended?'#efd26d':'#b3c89e');
-    this.text(blended?'已榨出橙汁':loaded?'橙肉已入机':'等待放入橙肉',512,294,12,P.deep);
+    if(blended&&!served)for(let i=0;i<4;i++)this.r(516,252+((this.time*26+i*9)%22),3,3,'#efb347');
+    this.text(served?'果汁已出品':blended?'已榨出橙汁':loaded?'橙肉已入机':'等待放入橙肉',512,294,12,P.deep);
     this.r(239,319,165,37,'#c9b98b');this.r(246,322,151,27,'#e8d9b1');
-    if(blended){this.r(291,297,51,51,'#f5e9c7');this.r(296,303,41,39,'#edb44c');this.r(288,294,57,8,'#46776c');this.r(310,278,5,19,'#e9d7a5');this.r(298,315,37,18,'#fff0d1');this.text('鲜橙汁',317,324,11,'#9d6f3b');}
+    if(blended){this.r(291,297,51,51,'#f5e9c7');this.r(296,303,41,39,'#edb44c');this.r(288,294,57,8,'#46776c');this.r(310,278,5,19,'#e9d7a5');this.r(298,315,37,18,'#fff0d1');this.text('鲜橙汁',317,324,11,'#9d6f3b');if(served)this.text('✓ 出品',317,289,12,P.teal);}
     else this.text('成品出口',320,337,13,'#7c825e');
   }
   _riceRoll(x,y,f={}){

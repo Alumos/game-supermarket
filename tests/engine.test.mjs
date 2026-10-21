@@ -47,6 +47,11 @@ test('juice, rice and tea require every production step in its meaningful order'
   }
   const emptyJuicer=simulate(graph(['wash_orange','peel_cut','start_juicer'],2,'fresh-juice'));
   assert.equal(emptyJuicer.errorNodeId,'step-3');assert.match(emptyJuicer.message,/放入橙肉/);assert.equal(emptyJuicer.finalState.flags.start_juicer,undefined);
+  // Serving is the final step: juice cannot leave the machine before it is made.
+  const earlyServe=simulate(graph(['wash_orange','peel_cut','add_orange','serve_juice'],2,'fresh-juice'));
+  assert.equal(earlyServe.completed,false);assert.equal(earlyServe.errorNodeId,'step-4');assert.match(earlyServe.message,/启动机器榨汁/);
+  assert.equal(earlyServe.finalState.flags.serve_juice,undefined);
+  assert.deepEqual(availableActions(2,'fresh-juice').map(a=>a.label),['清洗橙子','去皮切块','放入橙肉','启动机器榨汁','果汁出品']);
 });
 
 test('plant and fish accept the valid interchangeable orders',()=>{
@@ -362,5 +367,5 @@ test('trace follows edges, retains custom labels and labels coordinates for the 
   }
   assert.equal(actionLabel(to('J0')),'移动到 H（10，3）');
   assert.equal(actionLabel(to({x:10,y:5})),'移动到（10，5）');
-  assert.equal(actionLabel(null),'未选择操作');assert.equal(actionLabel('start_juicer'),'启动机器榨汁');
+  assert.equal(actionLabel(null),'未选择操作');assert.equal(actionLabel('start_juicer'),'启动机器榨汁');assert.equal(actionLabel('serve_juice'),'果汁出品');
 });
