@@ -47,11 +47,11 @@ YAML 中若密码包含单引号，需写成两个连续单引号；密码中的
 
 ## EdgeOne 加速规则
 
-仓库中的 `EDGEONE-SEQ-ALUMOS.json` 按 EdgeOne JSON Mode 的规范结构（主规则 Actions + SubRules）编写，可以直接导入。规则顺序必须保持：先匹配 `/api/*`、页面入口和 `/sw.js` 禁止缓存，再匹配 JS/CSS/图片等静态文件缓存 5 分钟。课堂 API、自动加入、作品提交、教师数据和 SSE 都不会进入 CDN 缓存。
+仓库中的 `EDGEONE-SEQ-ALUMOS.json` 按 EdgeOne JSON Mode 的规范结构（主规则 Actions + SubRules）编写，可以直接导入。根规则开启 FollowOrigin，只有公开静态文件通过 `file_extension` 子规则缓存 5 分钟；API、页面入口和 SSE 由源站的 `Cache-Control: no-store/no-cache` 控制，不进入缓存。这样不使用 EdgeOne 不支持的路径变量条件。
 
-导入后清理旧缓存一次；发布新镜像后如需立即更新学生端，清理 `/app.js`、`/app.css`、`/browser-identity.mjs`、`/shared/engine.mjs` 和 `/sw.js`。静态资源虽然允许 EdgeOne 边缘缓存，源站同时返回 ETag 和 `max-age=0`，浏览器会向 EdgeOne 重新校验。
+导入后清理旧缓存一次；发布新镜像后如需立即更新学生端，清理 `/app.js`、`/app.css`、`/browser-identity.mjs`、`/shared/engine.mjs` 和 `/sw.js`。静态资源源站同时返回 ETag 和 `max-age=0`，浏览器会向 EdgeOne 重新校验。
 
-不要把 `/api/*` 设置为缓存，也不要对 `/api/*/stream` 开启缓存或代理缓冲；否则可能出现课堂状态、学生身份或工牌响应串给其他客户端。
+不要关闭 FollowOrigin，也不要对 `/api/*/stream` 开启缓存或代理缓冲；否则可能出现课堂状态、学生身份或工牌响应串给其他客户端。
 
 ## 端口、地址与镜像源
 

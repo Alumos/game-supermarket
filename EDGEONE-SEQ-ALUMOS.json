@@ -34,42 +34,6 @@
             {
               "Branches": [
                 {
-                  "Condition": "${http.request.path} in ['/api/*']",
-                  "Actions": [
-                    {
-                      "Name": "Cache",
-                      "CacheParameters": {
-                        "NoCache": {
-                          "Switch": "on"
-                        }
-                      }
-                    }
-                  ]
-                }
-              ],
-              "Description": []
-            },
-            {
-              "Branches": [
-                {
-                  "Condition": "${http.request.path} in ['/', '/index.html', '/teacher.html', '/sw.js']",
-                  "Actions": [
-                    {
-                      "Name": "Cache",
-                      "CacheParameters": {
-                        "NoCache": {
-                          "Switch": "on"
-                        }
-                      }
-                    }
-                  ]
-                }
-              ],
-              "Description": []
-            },
-            {
-              "Branches": [
-                {
                   "Condition": "lower(${http.request.file_extension}) in ['js', 'mjs', 'css', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'woff', 'woff2']",
                   "Actions": [
                     {
