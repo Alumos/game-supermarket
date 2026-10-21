@@ -47,7 +47,7 @@ YAML 中若密码包含单引号，需写成两个连续单引号；密码中的
 
 ## EdgeOne 加速规则
 
-仓库中的 `EDGEONE-SEQ-ALUMOS.json` 可以在 EdgeOne 站点的 JSON Mode 直接导入。规则顺序必须保持：先匹配 `/api/*`、页面入口和 `/sw.js` 禁止缓存，再匹配 JS/CSS/图片等静态文件缓存 5 分钟。课堂 API、自动加入、作品提交、教师数据和 SSE 都不会进入 CDN 缓存。
+仓库中的 `EDGEONE-SEQ-ALUMOS.json` 按 EdgeOne JSON Mode 的规范结构（主规则 Actions + SubRules）编写，可以直接导入。规则顺序必须保持：先匹配 `/api/*`、页面入口和 `/sw.js` 禁止缓存，再匹配 JS/CSS/图片等静态文件缓存 5 分钟。课堂 API、自动加入、作品提交、教师数据和 SSE 都不会进入 CDN 缓存。
 
 导入后清理旧缓存一次；发布新镜像后如需立即更新学生端，清理 `/app.js`、`/app.css`、`/browser-identity.mjs`、`/shared/engine.mjs` 和 `/sw.js`。静态资源虽然允许 EdgeOne 边缘缓存，源站同时返回 ETag 和 `max-age=0`，浏览器会向 EdgeOne 重新校验。
 
