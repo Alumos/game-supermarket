@@ -48,6 +48,11 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
  const publicSession=s=>s?Object.fromEntries(['id','name','chapterId','phase','version'].map(k=>[k,s[k]])):null;
  const fail=(status,message,extra={})=>{throw Object.assign(new Error(message),{status,extra});};
  const streams=new Set();
+ // A live browser nonce is independent of disk-cloned device credentials.
+ const browserClaims=new Map();
+ const browserHash=req=>{const token=req.headers['x-supermarket-browser']||new URL(req.url,'http://localhost').searchParams.get('browser');return validDeviceToken(token)?hash(token):null;};
+ const activeClaim=id=>{const claim=browserClaims.get(id);if(!claim)return null;if(Date.now()-claim.seen<45000||[...streams].some(c=>c.learnerId===id&&c.browserHash===claim.hash&&!c.res.destroyed))return claim;browserClaims.delete(id);return null;};
+ const claimBrowser=(id,value)=>browserClaims.set(id,{hash:value,seen:Date.now()});
  const safeLearner=l=>{if(!l)return null;const {credentialVersion,...v}=l;return {...v,taskVersion:l.taskVersion||0,online:Date.now()-l.lastSeen<30000};};
  function auth(req,studentOnly=false){const cookies=Object.fromEntries((req.headers.cookie||'').split(';').map(c=>c.trim().split('=')));const explicitStudent=studentOnly||req.headers['x-supermarket-role']==='student'||new URL(req.url,'http://localhost').searchParams.get('role')==='student';const roles=explicitStudent?[['sm_student','student']]:[['sm_teacher','teacher'],['sm_student','student']];for(const [cookie,role] of roles){if(!cookies[cookie])continue;const a=get('auth',hash(cookies[cookie]));if(a&&a.role===role&&a.expires>Date.now()){if(role==='teacher'){if(a.teacherCredentialVersion===teacherCredentialVersion)return a;continue;}const l=get('learner',a.learnerId);if(l&&l.credentialVersion===a.credentialVersion)return {...a,learner:l};}}return null;}
  const need=(a,role)=>{if(!a||role&&a.role!==role)fail(403,'请先以正确身份登录');};
@@ -93,6 +98,7 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
    if(selected.has(previousCurrent))setCurrent(null);
    db.exec('COMMIT');
   }catch(error){db.exec('ROLLBACK');throw error;}
+  for(const [learnerId] of browserClaims)if(!get('learner',learnerId))browserClaims.delete(learnerId);
   for(const id of selected){const pending=teacherUpdates.get(id);if(pending)clearTimeout(pending.timer);teacherUpdates.delete(id);}
   for(const c of streams)if(selected.has(c.sessionId)){streams.delete(c);c.res.end();}
   if(selected.has(previousCurrent))broadcastCurrent();
@@ -130,6 +136,12 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
  const server=http.createServer(async(req,res)=>{try{
   res.setHeader('X-Content-Type-Options','nosniff');
   const url=new URL(req.url,'http://localhost'),p=url.pathname;const a=auth(req);let b={};
+  const browser=browserHash(req);
+  if(a?.role==='student'&&browser&&p.startsWith('/api/')&&!['/api/student/auto-join','/api/student/recover','/api/student/current','/api/logout'].includes(p)){
+   const claim=activeClaim(a.learnerId);
+   if(claim&&claim.hash!==browser)fail(409,'学生身份正在另一台设备使用，请重新领取工牌',{identityMismatch:true});
+   claimBrowser(a.learnerId,browser);
+  }
   if(p==='/healthz'&&['GET','HEAD'].includes(req.method)){statement('SELECT 1').get();res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(req.method==='HEAD'?undefined:JSON.stringify({ok:true}));return;}
   if(['POST','PUT','DELETE'].includes(req.method)){const origin=req.headers.origin;if(origin&&(publicOrigin?new URL(origin).origin!==publicOrigin:new URL(origin).host!==req.headers.host))fail(403,'禁止跨站请求');let chunks=[],size=0;for await(const c of req){size+=c.length;if(size>2000000)fail(413,'上传内容过大');chunks.push(c);}if(size){try{b=JSON.parse(Buffer.concat(chunks));}catch{fail(400,'数据格式错误');}}}
   const send=(value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
@@ -140,27 +152,39 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
   if(p==='/api/student/current'&&req.method==='GET')return send({session:publicSession(currentSession())});
   if(p==='/api/student/auto-join'&&req.method==='POST'){
    if(!validDeviceToken(b.deviceToken))fail(400,'设备凭据必须是32至256位随机字母、数字或横线');
-   let joined;
+   let joined,resolvedDeviceToken=b.deviceToken;
+   if(b.browserToken!==undefined&&!validDeviceToken(b.browserToken))fail(400,'浏览器会话凭据格式错误');
+   const joiningBrowser=b.browserToken?hash(b.browserToken):null;
    db.exec('BEGIN IMMEDIATE');
    try{
     const s=currentSession();
     if(s){
      const deviceId=`${s.id}:${hash(b.deviceToken)}`,binding=get('device',deviceId),student=auth(req,true);
-     let l=student?.sessionId===s.id?student.learner:binding?get('learner',binding.learnerId):null;
+     let l=joiningBrowser&&binding?get('learner',binding.learnerId):student?.sessionId===s.id?student.learner:binding?get('learner',binding.learnerId):null;
+     if(l&&joiningBrowser){
+      const claim=activeClaim(l.id);
+      if(claim&&claim.hash!==joiningBrowser){
+       // Deterministic split makes a lost response/retry enroll only once.
+       resolvedDeviceToken=hash(`split:${b.deviceToken}:${b.browserToken}`);
+       const splitBinding=get('device',`${s.id}:${hash(resolvedDeviceToken)}`);
+       l=splitBinding?get('learner',splitBinding.learnerId):null;
+      }
+     }
      if(l?.sessionId!==s.id)l=null;
      if(!l){
       const learners=all('learner',{sessionId:s.id});let n=Math.max(0,...learners.map(x=>Number(/^A([1-9]\d*)$/.exec(x.autoCode||x.seat)?.[1])||0))+1;
       while(learners.some(x=>x.seat===`A${n}`||x.autoCode===`A${n}`))n++;
       l=newLearner(s,{autoCode:`A${n}`,seat:`A${n}`,name:`A${n}`});
      }
-     l.lastSeen=Date.now();put('learner',l);put('device',{id:deviceId,sessionId:s.id,learnerId:l.id});
+     l.lastSeen=Date.now();put('learner',l);put('device',{id:`${s.id}:${hash(resolvedDeviceToken)}`,sessionId:s.id,learnerId:l.id});
+     if(joiningBrowser)claimBrowser(l.id,joiningBrowser);
      joined=state(s,{role:'student',sessionId:s.id,learnerId:l.id,learner:l});
      issue(res,'student',l);
     }
     db.exec('COMMIT');
    }catch(error){db.exec('ROLLBACK');throw error;}
    if(!joined)return send({session:null,learner:null});
-   notifyTeachers(joined.session.id,{roster:true});return send(joined);
+   notifyTeachers(joined.session.id,{roster:true});return send({...joined,...(joiningBrowser?{deviceToken:resolvedDeviceToken}:{})});
   }
   if(p==='/api/sessions/ended'&&req.method==='DELETE'){need(a,'teacher');if(b.confirm!=='清理已结束课堂')fail(400,'请输入“清理已结束课堂”确认');return send(deleteSessions(all('session').filter(s=>s.phase==='ended').map(s=>s.id)));}
   if(p==='/api/sessions'){need(a,'teacher');if(req.method==='GET')return send({sessions:all('session').reverse(),currentSessionId:currentSession()?.id||null});if(req.method==='POST'){let code;do{code=String(Math.floor(100000+Math.random()*900000));}while(all('session').some(s=>s.code===code));const s=put('session',{id:uid(),name:String(b.name||'超市实践课堂').slice(0,80),code,chapterId:1,chapterEpoch:0,phase:'waiting',version:1,createdAt:Date.now()});setCurrent(s.id);broadcastCurrent();return send({session:s,joinUrl:`${publicOrigin||(req.headers.host?.includes('localhost')?'http://'+(Object.values(networkInterfaces()).flat().find(x=>x.family==='IPv4'&&!x.internal)?.address||'localhost')+':'+(req.headers.host.split(':')[1]||8790):'http://'+req.headers.host)}/`},201);}}
@@ -171,6 +195,7 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
    if(b.deviceToken!==undefined&&!validDeviceToken(b.deviceToken))fail(400,'设备凭据格式错误');
    const l=get('learner',recovery.learnerId);if(!l)fail(403,'恢复码无效或已使用');
    db.exec('BEGIN IMMEDIATE');try{
+    browserClaims.delete(l.id);if(browser)claimBrowser(l.id,browser);
     l.credentialVersion++;l.lastSeen=Date.now();put('learner',l);put('recovery',{...recovery,used:true});
     statement('DELETE FROM records WHERE kind=? AND learnerId=?').run('device',l.id);
     if(b.deviceToken)put('device',{id:`${s.id}:${hash(b.deviceToken)}`,sessionId:s.id,learnerId:l.id});
@@ -182,7 +207,7 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
   const match=p.match(/^\/api\/sessions\/([^/]+)(?:\/(state|stream|commands|works|export))?$/);
   if(match){const [,id,op]=match,s=room(id,a);if(!op&&req.method==='DELETE'){need(a,'teacher');if(b.confirmName!==s.name)fail(400,'请输入完整课堂名称确认删除');if(currentSession()?.id===id&&s.phase!=='ended')fail(409,'请先结束当前课堂再删除');return send({ok:true,...deleteSessions([id])});}
    if(op==='state')return send(state(s,a));
-   if(op==='stream'){res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no'});res.write(`event: state\ndata: ${JSON.stringify(state(s,a))}\n\n`);const c={req,res,sessionId:id,role:a.role,learnerId:a.learnerId};streams.add(c);req.on('close',()=>streams.delete(c));return;}
+   if(op==='stream'){res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'private, no-store, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});res.write(`event: state\ndata: ${JSON.stringify(state(s,a))}\n\n`);const c={req,res,sessionId:id,role:a.role,learnerId:a.learnerId,browserHash:browser};streams.add(c);req.on('close',()=>streams.delete(c));return;}
    if(op==='commands'&&req.method==='POST'){need(a,'teacher');if(!b.commandId)fail(400,'缺少指令编号');const prior=get('command',`${id}:${b.commandId}`);if(prior)return send({session:s,duplicate:true});if(b.expectedVersion!==s.version)fail(409,'课堂状态已更新，请刷新后再操作',{session:s});if(s.phase==='ended')fail(409,'课堂已结束');const before=s.chapterId;switch(b.action){case'set-current':break;case'practice':s.phase='practice';s.openedChapters=[...new Set([...(s.openedChapters||[]),s.chapterId])];break;case'pause':if(s.phase!=='paused'){s.previousPhase=s.phase;s.phase='paused';}break;case'resume':s.phase=s.previousPhase||'practice';break;case'next':if(s.chapterId>=4)fail(400,'已是最后一章');s.chapterId++;s.chapterEpoch=(s.chapterEpoch||0)+1;s.phase='practice';s.openedChapters=[...new Set([...(s.openedChapters||[]),s.chapterId])];break;case'chapter':if(![1,2,3,4].includes(b.chapterId))fail(400,'章节无效');s.chapterId=b.chapterId;s.chapterEpoch=(s.chapterEpoch||0)+1;s.phase='practice';s.openedChapters=[...new Set([...(s.openedChapters||[]),s.chapterId])];break;case'end':s.phase='ended';break;default:fail(400,'未知课堂指令');}s.version++;s.updatedAt=Date.now();put('session',s);const previousCurrent=get('settings','current-classroom')?.currentSessionId;if(['set-current','practice','chapter','next','resume'].includes(b.action))setCurrent(id);else if(b.action==='end'&&previousCurrent===id)setCurrent(null);const currentChanged=previousCurrent!==get('settings','current-classroom')?.currentSessionId;put('command',{id:`${id}:${b.commandId}`,sessionId:id,session:clone(s)});if(before!==s.chapterId||s.phase==='ended')for(const d of all('draft',{sessionId:id}).filter(d=>d.chapterId===before)){const sid=`archive-${d.id}-${d.revision}-${s.version}`;put('submission',{id:sid,submissionId:sid,sessionId:id,learnerId:d.learnerId,draftId:d.id,revision:d.revision,chapterId:d.chapterId,taskId:d.taskId,graph:clone(d.graph),source:'chapter',createdAt:Date.now()});}broadcast(id,true);if(currentChanged)broadcastCurrent(id);return send({session:s,currentSessionId:currentSession()?.id||null});}
    if(op==='works'){need(a,'teacher');const since=Number(url.searchParams.get('since')),serverTime=Date.now(),data=url.searchParams.get('view')==='overview'?overviewWorks(id,since):works(id,undefined,since,url.searchParams.get('history')!=='0');return send({...data,incremental:since>0,serverTime});}
    if(op==='export'){need(a,'teacher');let data=works(id);const ch=Number(url.searchParams.get('chapterId')),learnerId=url.searchParams.get('learnerId');if(learnerId)data.learners=data.learners.filter(l=>l.id===learnerId);for(const k of ['drafts','draftVersions','runs','submissions','feedback','conflicts'])data[k]=data[k].filter(x=>(!learnerId||x.learnerId===learnerId)&&(!ch||x.chapterId===ch));const format=url.searchParams.get('format')||'json',out=format==='csv'?csv(data):format==='html'?printable(s,data):JSON.stringify({session:s,timeUnits:{delivery:'minutes',otherTasks:'seconds'},...data},null,2);res.writeHead(200,{'Content-Type':format==='csv'?'text/csv; charset=utf-8':format==='html'?'text/html; charset=utf-8':'application/json; charset=utf-8','Content-Disposition':`${format==='html'?'inline':'attachment'}; filename="supermarket-${s.code}.${format}"`,'Cache-Control':'no-store'});res.end(out);return;}}
@@ -247,7 +272,12 @@ export function createClassroomServer({dataDir=process.env.SUPERMARKET_DATA_DIR|
    }}
   if(p.startsWith('/api/'))fail(404,'接口不存在');
   if(!['GET','HEAD'].includes(req.method))fail(405,'请求方式不支持');
-  let relative=decodeURIComponent(p);const shared=relative.startsWith('/shared/');const base=join(ROOT,shared?'shared':'public');relative=shared?relative.slice(7):relative;const file=resolve(base,'.'+(relative==='/'?'/index.html':relative));if(!file.startsWith(base+'/'))fail(403,'禁止访问');if(!(await stat(file).catch(()=>null))?.isFile())fail(404,'页面不存在');const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};res.writeHead(200,{'Content-Type':types[extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Cache-Control':'no-cache'});res.end(req.method==='HEAD'?undefined:await readFile(file));
+  let relative=decodeURIComponent(p);const shared=relative.startsWith('/shared/');const base=join(ROOT,shared?'shared':'public');relative=shared?relative.slice(7):relative;const file=resolve(base,'.'+(relative==='/'?'/index.html':relative));if(!file.startsWith(base+'/'))fail(403,'禁止访问');const info=await stat(file).catch(()=>null);if(!info?.isFile())fail(404,'页面不存在');const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};const cacheable=/\.(?:js|mjs|css|svg|png|ico|woff2?)$/.test(file)&&p!=='/sw.js';
+  // Short edge TTL for unversioned imports; browsers revalidate on every load.
+  const etag=`W/"${info.size.toString(16)}-${Math.trunc(info.mtimeMs).toString(16)}"`;
+  const headers={'Content-Type':types[extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Cache-Control':cacheable?'public, max-age=0, s-maxage=300, must-revalidate':'no-cache',ETag:etag};
+  if((req.headers['if-none-match']||'').split(',').some(tag=>tag.trim()===etag||tag.trim()==='*')){res.writeHead(304,headers);res.end();return;}
+  res.writeHead(200,headers);res.end(req.method==='HEAD'?undefined:await readFile(file));
  }catch(e){if(!res.headersSent){res.writeHead(e.status||500,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify({error:e.status?e.message:'服务器处理失败',...(e.extra||{})}));}else res.end();if(!e.status)console.error(e);}});
  const timer=setInterval(()=>{for(const c of streams)c.res.write(': heartbeat\n\n');},15000);timer.unref();
  server.on('close',()=>{clearInterval(timer);for(const pending of teacherUpdates.values())clearTimeout(pending.timer);teacherUpdates.clear();for(const c of streams)c.res.end();db.close();});

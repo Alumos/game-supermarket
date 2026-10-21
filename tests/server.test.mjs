@@ -370,3 +370,38 @@ test('learning goal self assessments are validated, task specific, durable and p
  }
  assert.match(html,/自评记录：了解顺序结构的特点 · 1 \/ 3星/);
 });
+
+test('cloned browser credentials split live learners, retry safely and protect original works',async t=>{
+ const h=await autoJoinHarness(t),{call}=h;
+ const teacher=await call('/api/teacher/login',{method:'POST',body:{key:'auto-test'}});
+ const {session}=await call('/api/sessions',{cookie:teacher.cookie,method:'POST',body:{name:'克隆机房'},status:201});
+ const deviceToken='cloned-device-00000000000000000000001';
+ const token=i=>'runtime-browser-'+String(i).padStart(32,'0');
+ const join=(i,cookie='',device=deviceToken)=>call('/api/student/auto-join',{cookie,method:'POST',body:{deviceToken:device,browserToken:token(i)}});
+ const original=await join(0);
+ const copies=await Promise.all(Array.from({length:49},(_,i)=>join(i+1,original.cookie)));
+ assert.equal(new Set([original,...copies].map(x=>x.learner.id)).size,50);
+ assert.equal(new Set([original,...copies].map(x=>x.learner.autoCode)).size,50);
+ assert.equal((await join(0,original.cookie)).learner.id,original.learner.id);
+ const split=copies[0];assert.notEqual(split.deviceToken,deviceToken);
+ assert.equal((await join(1,original.cookie)).learner.id,split.learner.id); // lost response
+ assert.equal((await join(1,split.cookie,split.deviceToken)).learner.id,split.learner.id);
+ assert.equal(new Set((await Promise.all(Array.from({length:4},()=>join(1,split.cookie,split.deviceToken)))).map(x=>x.learner.id)).size,1);
+ await call('/api/student/ack',{cookie:original.cookie,headers:{'X-Supermarket-Browser':token(1)},method:'POST',body:{version:1,chapterId:1},status:409});
+ await call('/api/student/works',{cookie:original.cookie,headers:{'X-Supermarket-Browser':token(1)},status:409});
+ const roster=await call(`/api/sessions/${session.id}/state`,{cookie:teacher.cookie});assert.equal(roster.learners.length,50);
+ assert.equal((await call('/api/student/works',{cookie:split.cookie,headers:{'X-Supermarket-Browser':token(1)}})).drafts.length,0);
+ await h.restart({teacherKey:'auto-test'});
+ assert.equal((await join(1,split.cookie,split.deviceToken)).learner.id,split.learner.id);
+});
+
+test('public assets support CDN caching and ETag validation without caching classroom APIs',async t=>{
+ const h=await autoJoinHarness(t),base=`http://127.0.0.1:${h.app.server.address().port}`;
+ for(const path of ['/app.js','/app.css','/shared/engine.mjs','/browser-identity.mjs']){
+  const r=await fetch(base+path);assert.match(r.headers.get('cache-control'),/public.*s-maxage=300/);assert.equal(r.headers.get('set-cookie'),null);await r.arrayBuffer();
+  const validated=await fetch(base+path,{headers:{'If-None-Match':r.headers.get('etag')}});assert.equal(validated.status,304);assert.equal(await validated.text(),'');
+  const head=await fetch(base+path,{method:'HEAD'});assert.equal(head.headers.get('etag'),r.headers.get('etag'));
+ }
+ for(const path of ['/','/teacher.html','/sw.js']){const r=await fetch(base+path);assert.equal(r.headers.get('cache-control'),'no-cache');await r.arrayBuffer();}
+ for(const path of ['/api/me','/api/student/current','/healthz']){const r=await fetch(base+path);assert.equal(r.headers.get('cache-control'),'no-store');await r.arrayBuffer();}
+});

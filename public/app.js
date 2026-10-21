@@ -4,6 +4,7 @@ import * as db from './db.js';
 import {dragFootprint,dropZone,insertionAt,movedInsertionIndex} from './drag-drop.mjs';
 import {withRequestTimeout} from './request-timeout.mjs';
 import {gameAudio} from './audio.js';
+import {createBrowserIdentity} from './browser-identity.mjs';
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 gameAudio.bindButton($('#soundButton'));
@@ -11,7 +12,7 @@ const copy=v=>structuredClone(v), uid=()=>globalThis.crypto?.randomUUID?.()||`s-
 const defaultTask=ch=>['','drink-swap','fresh-juice','tea','delivery'][ch];
 const teacherDemoRequested=new URLSearchParams(location.search).get('mode')==='demo';
 const state={chapter:1,taskId:'drink-swap',graph:null,selected:null,undo:[],session:null,learner:null,assignment:null,online:navigator.onLine,stream:null,runs:[],feedback:[],queue:[],syncing:false,conflict:null,running:null,runEpoch:0,userPaused:false,teacherPaused:false,connecting:false,connectFrom:null,activeNode:null,errorNode:null,demo:false,teacherDemoMode:false,tabBlocked:false,submittedFingerprint:null,authExpired:false,joining:false,checkingClass:true,classUnavailable:false,switchingTask:false,formingFlow:false};
-let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId,pendingProgression=null;
+let saveTimer,toastTimer,transitionTimer,heartbeat,channel,identityToken=uid(),leaseTimer,classTimer,deviceToken,linkedSessionId,pendingProgression=null,browserIdentity;
 const scope=()=>state.teacherDemoMode?'teacher-demo':state.learner?.id||'practice';
 const graphKey=(ch=state.chapter,task=state.taskId)=>`draft:${scope()}:${ch}:${task}`;
 const metaKey=(key)=>`meta:${key}`;
@@ -34,9 +35,9 @@ async function safeSet(key,value){try{await db.set(key,value);return true;}catch
 async function api(path,options={}){
   return withRequestTimeout(async signal=>{
   const learnerHeader=state.learner&&/^\/api\/student\/(ack|drafts|runs|submissions|works|task)(?:\/|$)/.test(path)?{'X-Supermarket-Learner':state.learner.id}:{};
-  let response;try{response=await fetch(path,{credentials:'same-origin',signal,...options,headers:{'Content-Type':'application/json','X-Supermarket-Role':'student',...learnerHeader,...options.headers},body:options.body===undefined?undefined:JSON.stringify(options.body)});}catch(e){state.online=false;renderConnection();throw e;}
+  let response;try{response=await fetch(path,{credentials:'same-origin',cache:'no-store',signal,...options,headers:{'Content-Type':'application/json','X-Supermarket-Role':'student',...(browserIdentity?{'X-Supermarket-Browser':browserIdentity.token}:{}),...learnerHeader,...options.headers},body:options.body===undefined?undefined:JSON.stringify(options.body)});}catch(e){state.online=false;renderConnection();throw e;}
   const data=await response.json().catch(()=>({}));
-  if(!response.ok){const error=new Error(data.error||data.message||'请求未完成');Object.assign(error,{status:response.status,data});throw error;}
+  if(!response.ok){if(data.identityMismatch)state.authExpired=true;const error=new Error(data.error||data.message||'请求未完成');Object.assign(error,{status:response.status,data});throw error;}
   state.online=true;renderConnection();return data;
   });
 }
@@ -798,7 +799,7 @@ function alignRoom(){
   return roomRefresh;
 }
 function connectStream(){
-  state.stream?.close();if(!state.session)return;const stream=new EventSource(`/api/sessions/${state.session.id}/stream?role=student`);state.stream=stream;
+  state.stream?.close();if(!state.session)return;const stream=new EventSource(`/api/sessions/${state.session.id}/stream?role=student&browser=${encodeURIComponent(browserIdentity?.token||'')}`);state.stream=stream;
   stream.addEventListener('state',event=>{const data=JSON.parse(event.data);acceptRoom(data).then(()=>{flushQueue();if(data.currentSessionId&&data.currentSessionId!==state.session?.id)syncCurrentClass();});});
   // The stream sends its own initial snapshot, including after a reconnect.
   stream.onopen=()=>{state.online=true;renderConnection();renderNotice();flushQueue();};
@@ -823,6 +824,16 @@ async function enterClass(data){
   await hydrateWorks(await api('/api/student/works?history=0'));const current=await api(`/api/sessions/${state.session.id}/state`);state.assignment=current.assignment;
   state.graph=null;await changeChapter(current.session.chapterId,current.assignment.taskId,{transition:false});await acceptRoom(current);state.authExpired=false;startTabLease();connectStream();flushQueue();
   for(const dialog of ['#welcome','#identityDialog','#recoverDialog'])if($(dialog).open)$(dialog).close();
+}
+async function joinCurrentBrowser(){
+  const joined=await api('/api/student/auto-join',{method:'POST',body:{deviceToken,browserToken:browserIdentity.token}});
+  if(joined.deviceToken&&joined.deviceToken!==deviceToken){
+    // Save the replacement before loading works. Never upload cloned A1 work
+    // under the new identity; local records remain scoped to their learner ID.
+    deviceToken=joined.deviceToken;await db.set('autoDeviceToken',deviceToken);
+    try{localStorage.setItem('supermarket.auto-device',deviceToken);}catch{}
+  }
+  return joined;
 }
 async function getDeviceToken(){
   let prior;try{prior=localStorage.getItem('supermarket.auto-device');}catch{}
@@ -852,7 +863,7 @@ function syncCurrentClass({background=false}={}){
       if(session.id===state.session?.id&&!state.authExpired&&linkedSessionId===session.id){state.classUnavailable=false;return;}
       const changed=session.id!==state.session?.id;
       switching=true;await prepareClassSwitch({archive:changed,persist:changed});
-      const joined=await api('/api/student/auto-join',{method:'POST',body:{deviceToken}});
+      const joined=await joinCurrentBrowser();
       if(!joined.learner){state.classUnavailable=!!state.learner;return;}
       await enterClass(joined);
       linkedSessionId=joined.session.id;
@@ -995,8 +1006,10 @@ async function bootstrapTeacherDemo(){
 }
 async function bootstrap(){
   if(teacherDemoRequested){await bootstrapTeacherDemo();return;}
-  deviceToken=await getDeviceToken();
-  let participant=await db.get('participant').catch(()=>null),me=null;try{me=await api('/api/me');}catch{}
+  browserIdentity=await createBrowserIdentity();deviceToken=await getDeviceToken();
+  let participant=await db.get('participant').catch(()=>null),me=null;
+  // Claim identity before restoring/saving any cached student work.
+  try{const joined=await joinCurrentBrowser();if(joined.learner){me={role:'student',...joined};linkedSessionId=joined.session.id;}else me=await api('/api/me');}catch{}
   if(me?.role==='student')participant=me;
   else if(me&&participant?.learner){state.authExpired=true;state.online=false;}
   if(participant?.learner&&participant.session){

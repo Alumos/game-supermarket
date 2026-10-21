@@ -1,0 +1,87 @@
+{
+  "FormatVersion": "1.0",
+  "Rules": [
+    {
+      "RuleName": "网站加速-seq.alumos.cn",
+      "Branches": [
+        {
+          "Condition": "${http.request.path} in ['/api/*']",
+          "Actions": [
+            {
+              "Name": "Cache",
+              "CacheParameters": {
+                "NoCache": {
+                  "Switch": "on"
+                }
+              }
+            }
+          ],
+          "Description": [
+            "课堂 API、自动加入、提交作品、教师数据全部回源"
+          ]
+        },
+        {
+          "Condition": "${http.request.path} in ['/']",
+          "Actions": [
+            {
+              "Name": "Cache",
+              "CacheParameters": {
+                "NoCache": {
+                  "Switch": "on"
+                }
+              }
+            }
+          ],
+          "Description": [
+            "学生入口页面保持实时，避免页面壳版本滞后"
+          ]
+        },
+        {
+          "Condition": "${http.request.path} in ['/index.html', '/teacher.html', '/sw.js']",
+          "Actions": [
+            {
+              "Name": "Cache",
+              "CacheParameters": {
+                "NoCache": {
+                  "Switch": "on"
+                }
+              }
+            }
+          ],
+          "Description": [
+            "页面入口和 Service Worker 不缓存，发布新版本立即生效"
+          ]
+        },
+        {
+          "Condition": "lower(${http.request.file_extension}) in ['js', 'mjs', 'css', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'woff', 'woff2']",
+          "Actions": [
+            {
+              "Name": "MaxAge",
+              "MaxAgeParameters": {
+                "FollowOrigin": "off",
+                "CacheTime": 300
+              }
+            },
+            {
+              "Name": "CacheKey",
+              "CacheKeyParameters": {
+                "QueryString": {
+                  "Switch": "off",
+                  "Values": []
+                },
+                "FullURLCache": "on",
+                "IgnoreCase": "off"
+              }
+            }
+          ],
+          "Description": [
+            "公开静态资源边缘缓存 5 分钟；浏览器仍按源站 max-age=0 重新向 EdgeOne 校验"
+          ]
+        }
+      ],
+      "Description": [
+        "只缓存公开静态文件；课堂状态、身份、作品和 SSE 永不缓存"
+      ]
+    }
+  ]
+}
